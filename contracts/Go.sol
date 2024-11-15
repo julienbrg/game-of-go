@@ -12,10 +12,11 @@ contract Go {
     error CannotPlayHere();
     error OffBoard();
     error MissingTwoConsecutivePass();
+    error NoLiberties();
 
     uint public constant GOBAN = 19 * 19;
     uint public constant WIDTH = 19;
-    uint public constant MAX_GROUP_SIZE = 100; // Increased from 10 to 100
+    uint public constant MAX_GROUP_SIZE = 100;
 
     address public immutable white;
     address public immutable black;
@@ -45,6 +46,7 @@ contract Go {
     event Start(string indexed statement);
     event Move(string indexed player, uint indexed x, uint indexed y);
     event End(string indexed statement, int indexed blackScore, int indexed whiteScore);
+    event Capture(string indexed player, uint indexed count);
 
     /**
      * @dev Constructor initializes the game with white and black players
@@ -56,7 +58,6 @@ contract Go {
         black = _black;
         turn = black;
 
-        // Initialize the goban
         uint i;
         intersections[0] = Intersection({x: 0, y: 0, state: State.Empty});
         for (uint k; k < WIDTH; k++) {
@@ -80,19 +81,76 @@ contract Go {
         uint move = getIntersectionId(_x, _y);
         if (intersections[move].state != State.Empty) revert CannotPlayHere();
 
-        if (msg.sender == white) {
-            if (turn != white) revert NotYourTurn();
-            intersections[move].state = State.White;
-            turn = black;
-            emit Move("White", _x, _y);
+        State playerColor = (msg.sender == white) ? State.White : State.Black;
+        if (turn != (playerColor == State.White ? white : black)) revert NotYourTurn();
+
+        // Place the stone
+        intersections[move].state = playerColor;
+
+        // Check if the placed stone has liberties
+        if (countLiberties(move) == 0) {
+            // Check if the move captures opponent stones
+            bool capturedOpponent = checkForCaptures(
+                move,
+                playerColor == State.White ? State.Black : State.White
+            );
+
+            // If no captures and no liberties, the move is illegal
+            if (!capturedOpponent) {
+                intersections[move].state = State.Empty;
+                revert NoLiberties();
+            }
         }
 
-        if (msg.sender == black) {
-            if (turn != black) revert NotYourTurn();
-            intersections[move].state = State.Black;
-            turn = white;
-            emit Move("Black", _x, _y);
+        turn = (playerColor == State.White) ? black : white;
+        emit Move(playerColor == State.White ? "White" : "Black", _x, _y);
+    }
+
+    function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
+        bool capturedAny = false;
+        (uint east, uint west, uint north, uint south) = getNeighbors(_movePosition);
+        uint[] memory neighbors = new uint[](4);
+        neighbors[0] = east;
+        neighbors[1] = west;
+        neighbors[2] = north;
+        neighbors[3] = south;
+
+        for (uint i = 0; i < 4; i++) {
+            if (
+                !isOffBoard(intersections[neighbors[i]].x, intersections[neighbors[i]].y) &&
+                intersections[neighbors[i]].state == _opposingColor
+            ) {
+                uint[] memory group = getGroup(neighbors[i]);
+                bool hasLiberties = false;
+
+                // Check if any stone in the group has liberties
+                for (uint j = 0; j < group.length && group[j] != 0; j++) {
+                    if (countLiberties(group[j]) > 0) {
+                        hasLiberties = true;
+                        break;
+                    }
+                }
+
+                // If no liberties, capture the group
+                if (!hasLiberties) {
+                    uint captureCount = 0;
+                    for (uint j = 0; j < group.length && group[j] != 0; j++) {
+                        intersections[group[j]].state = State.Empty;
+                        captureCount++;
+                    }
+
+                    if (_opposingColor == State.White) {
+                        capturedWhiteStones += captureCount;
+                    } else {
+                        capturedBlackStones += captureCount;
+                    }
+
+                    emit Capture(_opposingColor == State.White ? "Black" : "White", captureCount);
+                    capturedAny = true;
+                }
+            }
         }
+        return capturedAny;
     }
 
     /**
@@ -244,9 +302,30 @@ contract Go {
     ) public view returns (uint east, uint west, uint north, uint south) {
         (uint x, uint y) = getIntersection(_target);
 
-        east = x < WIDTH - 1 ? getIntersectionId(x + 1, y) : type(uint).max;
-        west = x > 0 ? getIntersectionId(x - 1, y) : type(uint).max;
-        north = y < WIDTH - 1 ? getIntersectionId(x, y + 1) : type(uint).max;
-        south = y > 0 ? getIntersectionId(x, y - 1) : type(uint).max;
+        if (x < WIDTH - 1) {
+            east = getIntersectionId(x + 1, y);
+        }
+        if (x > 0) {
+            west = getIntersectionId(x - 1, y);
+        }
+        if (y < WIDTH - 1) {
+            north = getIntersectionId(x, y + 1);
+        }
+        if (y > 0) {
+            south = getIntersectionId(x, y - 1);
+        }
+    }
+
+    function countLiberties(uint _stonePosition) public view returns (uint) {
+        uint liberties;
+        (uint east, uint west, uint north, uint south) = getNeighbors(_stonePosition);
+        (uint x, uint y) = getIntersection(_stonePosition);
+
+        if (x < WIDTH - 1 && intersections[east].state == State.Empty) liberties++;
+        if (x > 0 && intersections[west].state == State.Empty) liberties++;
+        if (y < WIDTH - 1 && intersections[north].state == State.Empty) liberties++;
+        if (y > 0 && intersections[south].state == State.Empty) liberties++;
+
+        return liberties;
     }
 }
