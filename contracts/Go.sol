@@ -3,7 +3,9 @@ pragma solidity ^0.8.20;
 
 /**
  * @title Go
- * @dev Implementation of the game of Go in Solidity
+ * @author Claude
+ * @notice Implements the game of Go on the blockchain
+ * @dev Handles game logic for two players including stone placement, liberties, captures, and scoring
  * @custom:security-contact julien@beren.dev
  */
 contract Go {
@@ -29,6 +31,12 @@ contract Go {
     int public blackScore;
     int public whiteScore;
 
+    /**
+     * @dev Represents a single point on the Go board
+     * @param x The x coordinate
+     * @param y The y coordinate
+     * @param state The current state of this intersection (empty, black, or white)
+     */
     struct Intersection {
         uint x;
         uint y;
@@ -37,10 +45,13 @@ contract Go {
 
     Intersection[361] public intersections;
 
+    /**
+     * @dev Represents possible states of an intersection
+     */
     enum State {
+        Empty,
         Black,
-        White,
-        Empty
+        White
     }
 
     event Start(string indexed statement);
@@ -49,7 +60,8 @@ contract Go {
     event Capture(string indexed player, uint indexed count);
 
     /**
-     * @dev Constructor initializes the game with white and black players
+     * @notice Initializes a new game of Go
+     * @dev Sets up the board and assigns players
      * @param _white Address of the white player
      * @param _black Address of the black player
      */
@@ -59,7 +71,6 @@ contract Go {
         turn = black;
 
         uint i;
-        intersections[0] = Intersection({x: 0, y: 0, state: State.Empty});
         for (uint k; k < WIDTH; k++) {
             for (uint j; j < WIDTH; j++) {
                 intersections[i++] = Intersection({x: j, y: k, state: State.Empty});
@@ -70,42 +81,12 @@ contract Go {
     }
 
     /**
-     * @dev Place a stone at the specified coordinates
-     * @param _x X coordinate
-     * @param _y Y coordinate
+     * @notice Checks for and handles stone captures after a move
+     * @dev Evaluates neighbor groups for captures and updates the board state
+     * @param _movePosition The position where the last stone was placed
+     * @param _opposingColor The color of stones that might be captured
+     * @return bool True if any stones were captured
      */
-    function play(uint _x, uint _y) public {
-        if (msg.sender != white && msg.sender != black) revert CallerNotAllowedToPlay();
-        if (isOffBoard(_x, _y)) revert OffBoard();
-
-        uint move = getIntersectionId(_x, _y);
-        if (intersections[move].state != State.Empty) revert CannotPlayHere();
-
-        State playerColor = (msg.sender == white) ? State.White : State.Black;
-        if (turn != (playerColor == State.White ? white : black)) revert NotYourTurn();
-
-        // Place the stone
-        intersections[move].state = playerColor;
-
-        // Check if the placed stone has liberties
-        if (countLiberties(move) == 0) {
-            // Check if the move captures opponent stones
-            bool capturedOpponent = checkForCaptures(
-                move,
-                playerColor == State.White ? State.Black : State.White
-            );
-
-            // If no captures and no liberties, the move is illegal
-            if (!capturedOpponent) {
-                intersections[move].state = State.Empty;
-                revert NoLiberties();
-            }
-        }
-
-        turn = (playerColor == State.White) ? black : white;
-        emit Move(playerColor == State.White ? "White" : "Black", _x, _y);
-    }
-
     function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
         bool capturedAny = false;
         (uint east, uint west, uint north, uint south) = getNeighbors(_movePosition);
@@ -116,35 +97,36 @@ contract Go {
         neighbors[3] = south;
 
         for (uint i = 0; i < 4; i++) {
-            if (
-                !isOffBoard(intersections[neighbors[i]].x, intersections[neighbors[i]].y) &&
-                intersections[neighbors[i]].state == _opposingColor
-            ) {
-                uint[] memory group = getGroup(neighbors[i]);
-                bool hasLiberties = false;
+            uint neighbor = neighbors[i];
+            if (neighbor == 0 || intersections[neighbor].state != _opposingColor) {
+                continue;
+            }
 
-                // Check if any stone in the group has liberties
-                for (uint j = 0; j < group.length && group[j] != 0; j++) {
-                    if (countLiberties(group[j]) > 0) {
-                        hasLiberties = true;
-                        break;
-                    }
+            uint[] memory group = getGroup(neighbor);
+            bool hasLiberties = false;
+
+            for (uint j = 0; j < group.length && group[j] != 0; j++) {
+                if (countLiberties(group[j]) > 0) {
+                    hasLiberties = true;
+                    break;
                 }
+            }
 
-                // If no liberties, capture the group
-                if (!hasLiberties) {
-                    uint captureCount = 0;
-                    for (uint j = 0; j < group.length && group[j] != 0; j++) {
+            if (!hasLiberties) {
+                uint captureCount = 0;
+                for (uint j = 0; j < group.length && group[j] != 0; j++) {
+                    if (intersections[group[j]].state == _opposingColor) {
                         intersections[group[j]].state = State.Empty;
                         captureCount++;
                     }
+                }
 
+                if (captureCount > 0) {
                     if (_opposingColor == State.White) {
                         capturedWhiteStones += captureCount;
                     } else {
                         capturedBlackStones += captureCount;
                     }
-
                     emit Capture(_opposingColor == State.White ? "Black" : "White", captureCount);
                     capturedAny = true;
                 }
@@ -154,30 +136,115 @@ contract Go {
     }
 
     /**
-     * @dev Pass your turn
+     * @notice Counts the number of liberties (empty adjacent points) for a stone
+     * @param _stonePosition Position of the stone to check
+     * @return uint Number of liberties
+     */
+    function countLiberties(uint _stonePosition) public view returns (uint) {
+        uint liberties;
+        (uint east, uint west, uint north, uint south) = getNeighbors(_stonePosition);
+        uint x = _stonePosition % WIDTH;
+        uint y = _stonePosition / WIDTH;
+
+        if (x < WIDTH - 1 && intersections[east].state == State.Empty) liberties++;
+        if (x > 0 && intersections[west].state == State.Empty) liberties++;
+        if (y < WIDTH - 1 && intersections[north].state == State.Empty) liberties++;
+        if (y > 0 && intersections[south].state == State.Empty) liberties++;
+
+        return liberties;
+    }
+
+    /**
+     * @notice Gets the positions of adjacent intersections
+     * @param _target Center position to find neighbors for
+     * @return east East neighbor position
+     * @return west West neighbor position
+     * @return north North neighbor position
+     * @return south South neighbor position
+     */
+    function getNeighbors(
+        uint _target
+    ) public pure returns (uint east, uint west, uint north, uint south) {
+        uint x = _target % WIDTH;
+        uint y = _target / WIDTH;
+
+        if (x < WIDTH - 1) east = _target + 1;
+        if (x > 0) west = _target - 1;
+        if (y < WIDTH - 1) north = _target + WIDTH;
+        if (y > 0) south = _target - WIDTH;
+    }
+
+    /**
+     * @notice Places a stone on the board
+     * @dev Handles turn logic, stone placement, and capture checking
+     * @param _x X coordinate
+     * @param _y Y coordinate
+     */
+    function play(uint _x, uint _y) public {
+        if (msg.sender != white && msg.sender != black) revert CallerNotAllowedToPlay();
+        if (isOffBoard(_x, _y)) revert OffBoard();
+
+        State playerColor = (msg.sender == white) ? State.White : State.Black;
+        address expectedTurn = (playerColor == State.White) ? white : black;
+        if (turn != expectedTurn) revert NotYourTurn();
+
+        uint move = getIntersectionId(_x, _y);
+        if (intersections[move].state != State.Empty) revert CannotPlayHere();
+
+        intersections[move].state = playerColor;
+
+        bool hasLiberties = countLiberties(move) > 0;
+        bool capturedOpponent = checkForCaptures(
+            move,
+            playerColor == State.White ? State.Black : State.White
+        );
+
+        if (!hasLiberties && !capturedOpponent) {
+            intersections[move].state = State.Empty;
+            revert NoLiberties();
+        }
+
+        turn = (msg.sender == white) ? black : white;
+
+        if (playerColor == State.White) {
+            whitePassedOnce = false;
+        } else {
+            blackPassedOnce = false;
+        }
+
+        emit Move(playerColor == State.White ? "White" : "Black", _x, _y);
+    }
+
+    /**
+     * @notice Allows a player to pass their turn
+     * @dev Two consecutive passes end the game
      */
     function pass() public {
         if (msg.sender != white && msg.sender != black) revert CallerNotAllowedToPlay();
 
-        if (msg.sender == white) {
-            turn = black;
-            emit Move("White", 42, 42); // off board
-        }
+        State playerColor = (msg.sender == white) ? State.White : State.Black;
+        address expectedTurn = (playerColor == State.White) ? white : black;
+        if (turn != expectedTurn) revert NotYourTurn();
 
-        if (msg.sender == black) {
-            if (blackPassedOnce == true) {
-                end();
-            }
+        if (msg.sender == white) {
+            whitePassedOnce = true;
+            turn = black;
+            emit Move("White", 42, 42);
+        } else {
             blackPassedOnce = true;
             turn = white;
-            emit Move("Black", 42, 42); // off board
+            emit Move("Black", 42, 42);
+        }
+
+        if (blackPassedOnce && whitePassedOnce) {
+            end();
         }
     }
 
     /**
-     * @dev Get group of connected stones
-     * @param _target Starting intersection ID
-     * @return Array of connected stone IDs
+     * @notice Finds all connected stones of the same color
+     * @param _target Starting position to check for connected stones
+     * @return uint[] Array of connected stone positions
      */
     function getGroup(uint _target) public view returns (uint[] memory) {
         uint[] memory group = new uint[](MAX_GROUP_SIZE);
@@ -226,11 +293,11 @@ contract Go {
     }
 
     /**
-     * @dev Check if a stone ID exists in an array
-     * @param arr Array to check
+     * @dev Checks if a value exists in an array
+     * @param arr Array to search
      * @param val Value to find
-     * @param size Size of valid array elements
-     * @return bool True if value exists
+     * @param size Number of valid elements in the array
+     * @return bool True if value is found
      */
     function contains(uint[] memory arr, uint val, uint size) private pure returns (bool) {
         for (uint i = 0; i < size; i++) {
@@ -240,92 +307,41 @@ contract Go {
     }
 
     /**
-     * @dev End the game and calculate scores
+     * @dev Ends the game and calculates final scores
      */
     function end() private {
-        if (blackPassedOnce != true && whitePassedOnce != true) revert MissingTwoConsecutivePass();
-        blackScore = 1; // count the points instead
+        blackScore = 1; // TO DO: implement proper scoring
         whiteScore = 0;
-        if (blackScore > whiteScore) {
-            emit End("Black wins", blackScore, whiteScore);
-        } else {
-            emit End("White wins", blackScore, whiteScore);
-        }
+        emit End(blackScore > whiteScore ? "Black wins" : "White wins", blackScore, whiteScore);
     }
 
     /**
-     * @dev Check if coordinates are off the board
+     * @notice Checks if coordinates are outside the board
      * @param _a X coordinate
      * @param _b Y coordinate
-     * @return offBoard True if coordinates are invalid
+     * @return bool True if position is off board
      */
-    function isOffBoard(uint _a, uint _b) public view returns (bool offBoard) {
-        if (getIntersectionId(_a, _b) >= GOBAN - 1) {
-            return true;
-        }
+    function isOffBoard(uint _a, uint _b) public pure returns (bool) {
+        return _a >= WIDTH || _b >= WIDTH;
     }
 
     /**
-     * @dev Get intersection ID from coordinates
+     * @notice Converts x,y coordinates to a board position ID
      * @param _a X coordinate
      * @param _b Y coordinate
-     * @return target Intersection ID
+     * @return uint Position ID
      */
-    function getIntersectionId(uint _a, uint _b) public view returns (uint target) {
-        for (target; target < GOBAN; target++) {
-            if (intersections[target].x == _a && intersections[target].y == _b) {
-                return target;
-            }
-        }
+    function getIntersectionId(uint _a, uint _b) public pure returns (uint) {
+        return _a + _b * WIDTH;
     }
 
     /**
-     * @dev Get coordinates from intersection ID
-     * @param _target Intersection ID
+     * @notice Converts a board position ID to x,y coordinates
+     * @param _target Position ID
      * @return _x X coordinate
      * @return _y Y coordinate
      */
-    function getIntersection(uint _target) public view returns (uint _x, uint _y) {
-        return (intersections[_target].x, intersections[_target].y);
-    }
-
-    /**
-     * @dev Get neighboring intersection IDs
-     * @param _target Center intersection ID
-     * @return east East neighbor ID
-     * @return west West neighbor ID
-     * @return north North neighbor ID
-     * @return south South neighbor ID
-     */
-    function getNeighbors(
-        uint _target
-    ) public view returns (uint east, uint west, uint north, uint south) {
-        (uint x, uint y) = getIntersection(_target);
-
-        if (x < WIDTH - 1) {
-            east = getIntersectionId(x + 1, y);
-        }
-        if (x > 0) {
-            west = getIntersectionId(x - 1, y);
-        }
-        if (y < WIDTH - 1) {
-            north = getIntersectionId(x, y + 1);
-        }
-        if (y > 0) {
-            south = getIntersectionId(x, y - 1);
-        }
-    }
-
-    function countLiberties(uint _stonePosition) public view returns (uint) {
-        uint liberties;
-        (uint east, uint west, uint north, uint south) = getNeighbors(_stonePosition);
-        (uint x, uint y) = getIntersection(_stonePosition);
-
-        if (x < WIDTH - 1 && intersections[east].state == State.Empty) liberties++;
-        if (x > 0 && intersections[west].state == State.Empty) liberties++;
-        if (y < WIDTH - 1 && intersections[north].state == State.Empty) liberties++;
-        if (y > 0 && intersections[south].state == State.Empty) liberties++;
-
-        return liberties;
+    function getIntersection(uint _target) public pure returns (uint _x, uint _y) {
+        return (_target % WIDTH, _target / WIDTH);
     }
 }
