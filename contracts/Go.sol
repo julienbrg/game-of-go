@@ -241,11 +241,12 @@ contract Go {
      */
     function getNeighbors(
         uint _target
-    ) public pure returns (uint east, uint west, uint north, uint south) {
-        east = _target - 1;
-        west = _target + 1;
-        north = _target + WIDTH;
-        south = _target - WIDTH;
-        return (east, west, north, south);
+    ) public view returns (uint east, uint west, uint north, uint south) {
+        (uint x, uint y) = getIntersection(_target);
+
+        east = x < WIDTH - 1 ? getIntersectionId(x + 1, y) : type(uint).max;
+        west = x > 0 ? getIntersectionId(x - 1, y) : type(uint).max;
+        north = y < WIDTH - 1 ? getIntersectionId(x, y + 1) : type(uint).max;
+        south = y > 0 ? getIntersectionId(x, y - 1) : type(uint).max;
     }
 }
