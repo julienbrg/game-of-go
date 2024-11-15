@@ -101,8 +101,73 @@ describe("Go", function () {
             const getId = await go.getIntersectionId(16, 17)
             const getGroup = await go.getGroup(getId)
             expect(getGroup.toString()).to.equal(
-                "339,320,301,300,302,0,0,0,0,0"
+                "339,320,301,300,302,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
             )
+        })
+        it("Should return 20 connected stones", async function () {
+            const { go, white, black } = await loadFixture(startNewMatch)
+
+            // Create a large connected group in a spiral pattern
+            const blackMoves = [
+                [10, 10],
+                [10, 11],
+                [10, 12],
+                [10, 13],
+                [10, 14],
+                [11, 14],
+                [12, 14],
+                [13, 14],
+                [14, 14],
+                [14, 13],
+                [14, 12],
+                [14, 11],
+                [14, 10],
+                [13, 10],
+                [12, 10],
+                [11, 10],
+                [11, 11],
+                [11, 12],
+                [11, 13],
+                [12, 13]
+            ]
+            const whiteMoves = [
+                [5, 5],
+                [5, 6],
+                [5, 7],
+                [5, 8],
+                [5, 9],
+                [6, 9],
+                [7, 9],
+                [8, 9],
+                [9, 9],
+                [9, 8],
+                [9, 7],
+                [9, 6],
+                [9, 5],
+                [8, 5],
+                [7, 5],
+                [6, 5],
+                [6, 6],
+                [6, 7],
+                [6, 8],
+                [7, 8]
+            ]
+
+            for (let i = 0; i < blackMoves.length; i++) {
+                await go.connect(black).play(blackMoves[i][0], blackMoves[i][1])
+                if (i < blackMoves.length - 1) {
+                    await go
+                        .connect(white)
+                        .play(whiteMoves[i][0], whiteMoves[i][1])
+                }
+            }
+
+            const getId = await go.getIntersectionId(10, 10)
+            const getGroup = await go.getGroup(getId)
+
+            // Filter out zeros and check the length
+            const nonZeroStones = getGroup.filter(id => id.toString() !== "0")
+            expect(nonZeroStones.length).to.equal(20)
         })
     })
 })

@@ -15,6 +15,7 @@ contract Go {
 
     uint public constant GOBAN = 19 * 19;
     uint public constant WIDTH = 19;
+    uint public constant MAX_GROUP_SIZE = 100; // Increased from 10 to 100
 
     address public immutable white;
     address public immutable black;
@@ -53,7 +54,7 @@ contract Go {
     constructor(address _white, address _black) {
         white = _white;
         black = _black;
-        turn = black; // Black plays first
+        turn = black;
 
         // Initialize the goban
         uint i;
@@ -121,7 +122,7 @@ contract Go {
      * @return Array of connected stone IDs
      */
     function getGroup(uint _target) public view returns (uint[] memory) {
-        uint[] memory group = new uint[](10);
+        uint[] memory group = new uint[](MAX_GROUP_SIZE);
         uint groupSize = 0;
 
         group[groupSize++] = _target;
