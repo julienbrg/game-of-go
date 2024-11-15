@@ -181,4 +181,113 @@ describe("Go", function () {
             expect(nonZeroStones.length).to.equal(20)
         })
     })
+
+    describe("Go Liberty Tests", function () {
+        async function startNewMatch() {
+            const [deployer, white, black] = await ethers.getSigners()
+            const Go = await ethers.getContractFactory("Go")
+            const go = await Go.deploy(white.address, black.address)
+            return { go, white, black }
+        }
+
+        describe("Liberty Rules", function () {
+            it("Should count correct liberties for corner stone", async function () {
+                const { go, black } = await loadFixture(startNewMatch)
+                await go.connect(black).play(0, 0)
+                const position = await go.getIntersectionId(0, 0)
+                expect(await go.countLiberties(position)).to.equal(2)
+            })
+
+            it("Should count correct liberties for edge stone", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                await go.connect(black).play(0, 1)
+                const position = await go.getIntersectionId(0, 1)
+                expect(await go.countLiberties(position)).to.equal(3)
+            })
+
+            it("Should count correct liberties for center stone", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                await go.connect(black).play(5, 5)
+                const position = await go.getIntersectionId(5, 5)
+                expect(await go.countLiberties(position)).to.equal(4)
+            })
+
+            it("Should prevent suicide moves", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                // Create a white wall
+                await go.connect(black).play(1, 0)
+                await go.connect(white).play(0, 1)
+                await go.connect(black).play(5, 5)
+                await go.connect(white).play(1, 1)
+
+                // Attempt suicide move at 0,0
+                await expect(
+                    go.connect(black).play(0, 0)
+                ).to.be.revertedWithCustomError(go, "NoLiberties")
+            })
+
+            xit("Should allow capturing moves", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                // Surround white stone
+                await go.connect(black).play(1, 1)
+                await go.connect(white).play(1, 0)
+                await go.connect(black).play(0, 0)
+                await go.connect(white).play(5, 5)
+                await go.connect(black).play(2, 0)
+                await go.connect(white).play(5, 6)
+                await go.connect(black).play(1, 2)
+
+                // Capturing move
+                const captureTx = await go.connect(black).play(0, 1)
+
+                // Check capture event
+                await expect(captureTx)
+                    .to.emit(go, "Capture")
+                    .withArgs("Black", 1)
+
+                // Verify stone was captured
+                expect(await go.capturedWhiteStones()).to.equal(1)
+
+                // Verify captured position is empty
+                const capturedPosition = await go.getIntersectionId(1, 0)
+                const intersection = await go.intersections(capturedPosition)
+                expect(intersection.state).to.equal(0) // Empty state
+            })
+
+            xit("Should handle group captures", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                // Create capturable white group
+                await go.connect(black).play(0, 1)
+                await go.connect(white).play(1, 1)
+                await go.connect(black).play(2, 1)
+                await go.connect(white).play(1, 2)
+                await go.connect(black).play(1, 3)
+
+                // Capture two white stones
+                const captureTx = await go.connect(black).play(1, 0)
+
+                await expect(captureTx)
+                    .to.emit(go, "Capture")
+                    .withArgs("Black", 2)
+
+                expect(await go.capturedWhiteStones()).to.equal(2)
+            })
+
+            xit("Should allow moves that capture to avoid suicide", async function () {
+                const { go, black, white } = await loadFixture(startNewMatch)
+                // Set up position where black can only play by capturing
+                await go.connect(black).play(0, 1)
+                await go.connect(white).play(1, 0)
+                await go.connect(black).play(1, 1)
+                await go.connect(white).play(0, 0)
+
+                // This move would be suicide except it captures
+                const captureTx = await go.connect(black).play(0, 0)
+
+                await expect(captureTx)
+                    .to.emit(go, "Capture")
+                    .withArgs("Black", 1)
+            })
+        })
+    })
 })
