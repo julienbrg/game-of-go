@@ -1,12 +1,10 @@
-# Game of go
+# Game of Go
 
-Solidity implementation of the game of Go.
+Solidity implementation of the Game of Go.
 
 ## Supported networks
 
--   [OP Mainnet](https://chainlist.org/chain/10) ([docs](https://docs.optimism.io/chain/networks#op-mainnet))
 -   [Sepolia Testnet](https://chainlist.org/chain/11155111) ([docs](https://ethereum.org/nb/developers/docs/networks/#sepolia))
--   [OP Sepolia Testnet](https://chainlist.org/chain/11155420) ([docs](https://docs.optimism.io/chain/networks#op-sepolia))
 
 ## Install
 
@@ -40,18 +38,6 @@ You can check the current signer wallet balance:
 
 ```
 pnpm bal <NETWORK_NAME>
-```
-
-## Mint
-
-```
-pnpm mint:<NETWORK_NAME> 42
-```
-
-## Send
-
-```
-pnpm send:<NETWORK_NAME> 8
 ```
 
 ## Versions
