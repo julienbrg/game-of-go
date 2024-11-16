@@ -492,4 +492,26 @@ contract Go {
     function getIntersection(uint _target) public pure returns (uint _x, uint _y) {
         return (_target % WIDTH, _target / WIDTH);
     }
+
+    function getGameState()
+        external
+        view
+        returns (
+            Intersection[361] memory board,
+            address currentTurn,
+            uint256 whiteCaptured,
+            uint256 blackCaptured,
+            bool isWhitePassed,
+            bool isBlackPassed
+        )
+    {
+        return (
+            intersections,
+            turn,
+            capturedWhiteStones,
+            capturedBlackStones,
+            whitePassedOnce,
+            blackPassedOnce
+        );
+    }
 }

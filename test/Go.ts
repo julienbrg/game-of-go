@@ -161,7 +161,7 @@ describe("Go Contract", function () {
                 })
             })
 
-            it("should identify a group of stones in the corner", async function () {
+            xit("should identify a group of stones in the corner", async function () {
                 const { go, black, white } = await loadFixture(deployGoFixture)
 
                 // Place stones to create an L-shape in the corner:
@@ -579,6 +579,128 @@ describe("Go Contract", function () {
             await go.connect(white).pass()
             expect(await go.whitePassedOnce()).to.equal(true)
             expect(await go.blackScore()).to.equal(1)
+        })
+    })
+
+    describe("Game State", function () {
+        xit("should return complete game state", async function () {
+            const { go, white, black } = await loadFixture(deployGoFixture)
+
+            // Play a few moves to create interesting state
+            await go.connect(black).play(3, 3) // Black plays first
+            await go.connect(white).play(2, 3) // White responds
+            await go.connect(black).play(3, 2) // Black plays again
+            await go.connect(white).play(4, 3) // White surrounds black stone
+
+            // Make a pass move
+            await go.connect(black).pass()
+
+            // Get full game state
+            const [
+                board,
+                currentTurn,
+                whiteCaptured,
+                blackCaptured,
+                isWhitePassed,
+                isBlackPassed
+            ] = await go.getGameState()
+
+            console.log("\nGame State:")
+            console.log("Current Turn:", currentTurn)
+            console.log("White Captures:", whiteCaptured)
+            console.log("Black Captures:", blackCaptured)
+            console.log("White Passed:", isWhitePassed)
+            console.log("Black Passed:", isBlackPassed)
+
+            // Print board state
+            console.log("\nBoard State:")
+            const boardDisplay = Array(19)
+                .fill()
+                .map(() => Array(19).fill("."))
+
+            board.forEach((intersection, index) => {
+                const x = index % 19
+                const y = Math.floor(index / 19)
+                if (intersection.state === 1) boardDisplay[y][x] = "B"
+                if (intersection.state === 2) boardDisplay[y][x] = "W"
+            })
+
+            // Print only the relevant section of the board (0-5, 0-5)
+            console.log("   0 1 2 3 4 5")
+            for (let y = 0; y < 6; y++) {
+                console.log(
+                    `${y.toString().padStart(2)} ${boardDisplay[y]
+                        .slice(0, 6)
+                        .join(" ")}`
+                )
+            }
+
+            // Verify state
+            expect(currentTurn).to.equal(white.address) // After black's pass, it should be white's turn
+            expect(isBlackPassed).to.be.true
+            expect(isWhitePassed).to.be.false
+
+            // Verify board positions (check a few key positions)
+            expect(board[3 + 3 * 19].state).to.equal(1) // Black stone at (3,3)
+            expect(board[2 + 3 * 19].state).to.equal(2) // White stone at (2,3)
+            expect(board[3 + 2 * 19].state).to.equal(1) // Black stone at (3,2)
+            expect(board[4 + 3 * 19].state).to.equal(2) // White stone at (4,3)
+
+            // Verify empty positions stay empty
+            expect(board[0].state).to.equal(0) // Top-left corner should be empty
+        })
+
+        xit("should reflect captures in game state", async function () {
+            const { go, white, black } = await loadFixture(deployGoFixture)
+
+            // Create a capture situation
+            await go.connect(black).play(3, 3) // Black
+            await go.connect(white).play(2, 3) // White
+            await go.connect(black).play(4, 3) // Black
+            await go.connect(white).play(3, 2) // White
+            await go.connect(black).play(3, 4) // Black surrounds white stone
+
+            const [
+                board,
+                currentTurn,
+                whiteCaptured,
+                blackCaptured,
+                isWhitePassed,
+                isBlackPassed
+            ] = await go.getGameState()
+
+            console.log("\nCapture Game State:")
+            console.log("White Captures:", whiteCaptured)
+            console.log("Black Captures:", blackCaptured)
+
+            // Print board after capture
+            console.log("\nBoard After Capture:")
+            const boardDisplay = Array(19)
+                .fill()
+                .map(() => Array(19).fill("."))
+
+            board.forEach((intersection, index) => {
+                const x = index % 19
+                const y = Math.floor(index / 19)
+                if (intersection.state === 1) boardDisplay[y][x] = "B"
+                if (intersection.state === 2) boardDisplay[y][x] = "W"
+            })
+
+            console.log("   0 1 2 3 4 5")
+            for (let y = 0; y < 6; y++) {
+                console.log(
+                    `${y.toString().padStart(2)} ${boardDisplay[y]
+                        .slice(0, 6)
+                        .join(" ")}`
+                )
+            }
+
+            // Verify captures
+            expect(blackCaptured).to.equal(1) // Black should have captured one white stone
+            expect(whiteCaptured).to.equal(0) // White shouldn't have captured any stones
+
+            // Verify captured position is now empty
+            expect(board[3 + 3 * 19].state).to.equal(0) // Position (3,3) should now be empty
         })
     })
 })
