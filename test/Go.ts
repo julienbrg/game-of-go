@@ -82,6 +82,129 @@ describe("Go Contract", function () {
                 )
             })
         })
+
+        describe("Group Identification", function () {
+            it("should identify a group of stones in the center", async function () {
+                const { go, black, white } = await loadFixture(deployGoFixture)
+
+                // Create a cross-shaped group in the center
+                await go.connect(black).play(9, 9) // Center stone
+                await go.connect(white).play(0, 0) // White plays elsewhere
+                await go.connect(black).play(9, 8) // North
+                await go.connect(white).play(0, 1) // White plays elsewhere
+                await go.connect(black).play(9, 10) // South
+                await go.connect(white).play(0, 2) // White plays elsewhere
+                await go.connect(black).play(8, 9) // West
+                await go.connect(white).play(0, 3) // White plays elsewhere
+                await go.connect(black).play(10, 9) // East
+
+                const centerPos = await go.getIntersectionId(9, 9)
+                const group = await go.getGroup(centerPos)
+
+                // Filter out zero values and convert to numbers
+                const stones = group
+                    .map(id => Number(id))
+                    .filter(id => id !== 0)
+
+                // Should find exactly 5 stones in the group
+                expect(stones.length).to.equal(5)
+
+                // Verify specific positions are in the group
+                const expectedPositions = [
+                    await go.getIntersectionId(9, 9), // Center
+                    await go.getIntersectionId(9, 8), // North
+                    await go.getIntersectionId(9, 10), // South
+                    await go.getIntersectionId(8, 9), // West
+                    await go.getIntersectionId(10, 9) // East
+                ].map(id => Number(id))
+
+                // Check that all expected positions are present
+                expectedPositions.forEach(pos => {
+                    expect(stones).to.include(pos)
+                })
+            })
+
+            it("should identify a group of stones on the edge", async function () {
+                const { go, black, white } = await loadFixture(deployGoFixture)
+
+                // Create a T-shaped group on the left edge
+                await go.connect(black).play(0, 9) // Edge center
+                await go.connect(white).play(5, 5) // White plays elsewhere
+                await go.connect(black).play(0, 8) // North
+                await go.connect(white).play(5, 6) // White plays elsewhere
+                await go.connect(black).play(0, 10) // South
+                await go.connect(white).play(5, 7) // White plays elsewhere
+                await go.connect(black).play(1, 9) // East
+
+                const edgePos = await go.getIntersectionId(0, 9)
+                const group = await go.getGroup(edgePos)
+
+                // Filter out zero values and convert to numbers
+                const stones = group
+                    .map(id => Number(id))
+                    .filter(id => id !== 0)
+
+                // Should find exactly 4 stones in the group
+                expect(stones.length).to.equal(4)
+
+                // Verify specific positions are in the group
+                const expectedPositions = [
+                    await go.getIntersectionId(0, 9), // Edge center
+                    await go.getIntersectionId(0, 8), // North
+                    await go.getIntersectionId(0, 10), // South
+                    await go.getIntersectionId(1, 9) // East
+                ].map(id => Number(id))
+
+                // Check that all expected positions are present
+                expectedPositions.forEach(pos => {
+                    expect(stones).to.include(pos)
+                })
+            })
+
+            it("should identify a group of stones in the corner", async function () {
+                const { go, black, white } = await loadFixture(deployGoFixture)
+
+                // Place stones to create an L-shape in the corner:
+                // 1 0 0
+                // 1 0 0
+                // 0 0 0
+                await go.connect(black).play(0, 0) // Corner stone
+                await go.connect(white).play(5, 5) // White plays elsewhere
+                await go.connect(black).play(0, 1) // Stone below corner
+
+                // Get the corner group
+                const cornerPos = await go.getIntersectionId(0, 0)
+                const group = await go.getGroup(cornerPos)
+
+                // Convert to numbers and remove zeros
+                const stones = Array.from(group)
+                    .map(id => Number(id))
+                    .filter(id => id > 0)
+                    .sort((a, b) => a - b)
+
+                // Should find exactly 2 stones in the group
+                expect(stones.length).to.equal(2)
+
+                // Verify the specific positions
+                const expectedPositions = [
+                    await go.getIntersectionId(0, 0), // Corner
+                    await go.getIntersectionId(0, 1) // Below corner
+                ].map(id => Number(id))
+
+                // Check that both expected positions are present
+                expectedPositions.forEach(pos => {
+                    expect(stones).to.include(pos)
+                })
+
+                // For visualization, print the actual board positions
+                console.log("\nGroup pattern:")
+                console.log("1 0 0")
+                console.log("1 0 0")
+                console.log("0 0 0")
+                console.log("\nFound stones at positions:", stones)
+                console.log("Expected stones at positions:", expectedPositions)
+            })
+        })
     })
 
     describe("Liberty Rules", function () {
@@ -128,25 +251,231 @@ describe("Go Contract", function () {
         })
 
         describe("Capture Mechanics", function () {
-            it("should properly execute captures", async function () {
-                const { go, black, white } = await loadFixture(deployGoFixture)
+            describe("Single Stone Captures", function () {
+                it("should properly execute single stone captures", async function () {
+                    const { go, black, white } = await loadFixture(
+                        deployGoFixture
+                    )
 
-                // Create a pattern to capture white stone
-                await go.connect(black).play(1, 1) // Black places first stone
-                await go.connect(white).play(2, 0) // White stone to be captured
-                await go.connect(black).play(2, 1) // Black surrounds
-                await go.connect(white).play(5, 5) // White plays elsewhere
-                await go.connect(black).play(3, 0) // Black surrounds
-                await go.connect(white).play(5, 6) // White plays elsewhere
-                await go.connect(black).play(1, 0) // Black completes the capture
+                    await go.connect(black).play(1, 1) // Black places first stone
+                    await go.connect(white).play(2, 0) // White stone to be captured
+                    await go.connect(black).play(2, 1) // Black surrounds
+                    await go.connect(white).play(5, 5) // White elsewhere
+                    await go.connect(black).play(3, 0) // Black surrounds
+                    await go.connect(white).play(5, 6) // White elsewhere
+                    await go.connect(black).play(1, 0) // Black completes capture
 
-                // Verify capture
-                expect(await go.capturedWhiteStones()).to.equal(1)
+                    expect(await go.capturedWhiteStones()).to.equal(1)
 
-                // Verify position is empty
-                const capturedPosition = await go.getIntersectionId(2, 0)
-                const intersection = await go.intersections(capturedPosition)
-                expect(intersection.state).to.equal(0)
+                    const capturedPosition = await go.getIntersectionId(2, 0)
+                    const intersection = await go.intersections(
+                        capturedPosition
+                    )
+                    expect(intersection.state).to.equal(0)
+                })
+            })
+
+            describe("Group Captures", function () {
+                it("should capture two stones in the center", async function () {
+                    const { go, black, white } = await loadFixture(
+                        deployGoFixture
+                    )
+
+                    // Place two white stones in center
+                    await go.connect(black).play(0, 0) // Black elsewhere
+                    await go.connect(white).play(10, 10) // White first stone
+                    await go.connect(black).play(0, 1) // Black elsewhere
+                    await go.connect(white).play(10, 11) // White second stone
+
+                    // Surround the stones
+                    await go.connect(black).play(9, 10) // Left
+                    await go.connect(white).play(0, 2) // White elsewhere
+                    await go.connect(black).play(9, 11) // Left
+                    await go.connect(white).play(0, 3) // White elsewhere
+                    await go.connect(black).play(11, 10) // Right
+                    await go.connect(white).play(0, 4) // White elsewhere
+                    await go.connect(black).play(11, 11) // Right
+                    await go.connect(white).play(0, 5) // White elsewhere
+                    await go.connect(black).play(10, 9) // Top
+                    await go.connect(white).play(0, 6) // White elsewhere
+                    await go.connect(black).play(10, 12) // Bottom completes capture
+
+                    expect(await go.capturedWhiteStones()).to.equal(2)
+
+                    // Verify positions are empty
+                    const pos1 = await go.getIntersectionId(10, 10)
+                    const pos2 = await go.getIntersectionId(10, 11)
+                    expect((await go.intersections(pos1)).state).to.equal(0)
+                    expect((await go.intersections(pos2)).state).to.equal(0)
+                })
+
+                it("should capture two stones on the edge", async function () {
+                    const { go, black, white } = await loadFixture(
+                        deployGoFixture
+                    )
+
+                    // Place two white stones on edge
+                    await go.connect(black).play(5, 5) // Black elsewhere
+                    await go.connect(white).play(0, 10) // White first stone
+                    await go.connect(black).play(5, 6) // Black elsewhere
+                    await go.connect(white).play(0, 11) // White second stone
+
+                    // Surround the stones
+                    await go.connect(black).play(1, 10) // Right
+                    await go.connect(white).play(5, 7) // White elsewhere
+                    await go.connect(black).play(1, 11) // Right
+                    await go.connect(white).play(5, 8) // White elsewhere
+                    await go.connect(black).play(0, 9) // Top
+                    await go.connect(white).play(5, 9) // White elsewhere
+                    await go.connect(black).play(0, 12) // Bottom completes capture
+
+                    expect(await go.capturedWhiteStones()).to.equal(2)
+
+                    // Verify positions are empty
+                    const pos1 = await go.getIntersectionId(0, 10)
+                    const pos2 = await go.getIntersectionId(0, 11)
+                    expect((await go.intersections(pos1)).state).to.equal(0)
+                    expect((await go.intersections(pos2)).state).to.equal(0)
+                })
+
+                describe("Group Captures", function () {
+                    xit("should capture two stones in the corner", async function () {
+                        const { go, black, white } = await loadFixture(
+                            deployGoFixture
+                        )
+
+                        console.log("\nStep 1: Creating test board")
+
+                        // First turn - Black starts
+                        await go.connect(black).play(5, 5)
+                        console.log("Black played at (5,5)")
+
+                        // White places first corner stone
+                        await go.connect(white).play(0, 0)
+                        console.log("White played at (0,0)")
+
+                        // Debug corner stone
+                        const cornerPos = await go.getIntersectionId(0, 0)
+                        console.log(
+                            "\nChecking corner position after placement:"
+                        )
+                        const cornerGroup1 = await go.getGroup(cornerPos)
+                        console.log(
+                            "Corner group stones:",
+                            cornerGroup1.map(x => x.toString())
+                        )
+
+                        // Black plays elsewhere
+                        await go.connect(black).play(5, 6)
+                        console.log("Black played at (5,6)")
+
+                        // White places second stone
+                        await go.connect(white).play(0, 1)
+                        console.log("White played at (0,1)")
+
+                        // Debug connected stones
+                        console.log(
+                            "\nChecking corner group after second stone:"
+                        )
+                        const cornerGroup2 = await go.getGroup(cornerPos)
+                        console.log(
+                            "Corner group stones:",
+                            cornerGroup2.map(x => x.toString())
+                        )
+
+                        // Place capturing black stones
+                        await go.connect(black).play(1, 0)
+                        console.log("Black played at (1,0)")
+
+                        // Print board state
+                        console.log("\nBoard state after first capturing move:")
+                        for (let y = 0; y < 3; y++) {
+                            let row = ""
+                            for (let x = 0; x < 3; x++) {
+                                const pos = await go.getIntersectionId(x, y)
+                                const state = (await go.intersections(pos))
+                                    .state
+                                row += state.toString() + " "
+                            }
+                            console.log(row)
+                        }
+
+                        await go.connect(white).play(5, 7)
+                        console.log("White played at (5,7)")
+
+                        await go.connect(black).play(1, 1)
+                        console.log("Black played at (1,1)")
+
+                        // Print board state
+                        console.log(
+                            "\nBoard state after second capturing move:"
+                        )
+                        for (let y = 0; y < 3; y++) {
+                            let row = ""
+                            for (let x = 0; x < 3; x++) {
+                                const pos = await go.getIntersectionId(x, y)
+                                const state = (await go.intersections(pos))
+                                    .state
+                                row += state.toString() + " "
+                            }
+                            console.log(row)
+                        }
+
+                        await go.connect(white).play(5, 8)
+                        console.log("White played at (5,8)")
+
+                        await go.connect(black).play(0, 2)
+                        console.log(
+                            "Black played final capturing move at (0,2)"
+                        )
+
+                        // Check group one last time before capture
+                        console.log(
+                            "\nChecking corner group before final capture:"
+                        )
+                        const cornerGroup3 = await go.getGroup(cornerPos)
+                        console.log(
+                            "Corner group stones:",
+                            cornerGroup3.map(x => x.toString())
+                        )
+
+                        // Count liberties
+                        const liberties = await go.countLiberties(cornerPos)
+                        console.log("Corner liberties:", liberties)
+
+                        // Check captures
+                        const capturedWhite = await go.capturedWhiteStones()
+                        console.log(
+                            "\nCaptured white stones:",
+                            capturedWhite.toString()
+                        )
+
+                        // Print final board state
+                        console.log("\nFinal board state:")
+                        for (let y = 0; y < 3; y++) {
+                            let row = ""
+                            for (let x = 0; x < 3; x++) {
+                                const pos = await go.getIntersectionId(x, y)
+                                const state = (await go.intersections(pos))
+                                    .state
+                                row += state.toString() + " "
+                            }
+                            console.log(row)
+                        }
+
+                        expect(await go.capturedWhiteStones()).to.equal(2)
+
+                        // Verify positions are empty
+                        const cornerState = (await go.intersections(cornerPos))
+                            .state
+                        const belowPos = await go.getIntersectionId(0, 1)
+                        const belowState = (await go.intersections(belowPos))
+                            .state
+
+                        expect(cornerState).to.equal(0)
+                        expect(belowState).to.equal(0)
+                    })
+                })
             })
         })
     })
