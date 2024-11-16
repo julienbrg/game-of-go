@@ -9,12 +9,6 @@
         "deploy:sepolia": "hardhat deploy --network sepolia --reset",
         "deploy:optimism": "hardhat deploy --network optimism --reset",
         "deploy:op-sepolia": "hardhat deploy --network op-sepolia --reset",
-        "mint:sepolia": "hardhat mint --network sepolia --amount",
-        "mint:optimism": "hardhat mint --network optimism --amount",
-        "mint:op-sepolia": "hardhat mint --network op-sepolia --amount",
-        "send:sepolia": "hardhat send --wallet 0xD8a394e7d7894bDF2C57139fF17e5CBAa29Dd977 --network sepolia --amount",
-        "send:optimism": "hardhat send --wallet 0xD8a394e7d7894bDF2C57139fF17e5CBAa29Dd977 --network optimism --amount",
-        "send:op-sepolia": "hardhat send --wallet 0xD8a394e7d7894bDF2C57139fF17e5CBAa29Dd977 --network op-sepolia --amount",
         "bal": "npx hardhat run scripts/check-my-balance.ts --network",
         "prettier": "prettier --write \"**/*.ts\"",
         "prettier-check": "prettier --check \"**/*.ts\""
