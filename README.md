@@ -2,9 +2,14 @@
 
 Solidity implementation of the Game of Go.
 
+- Live demo: https://go-onchain.netlify.app/
+- UI repo: https://github.com/julienbrg/go-onchain
+- Factory contract on Sepolia: https://sepolia.etherscan.io/address/0x8142F414462f8d17060C4b5a60b8C1a06B75040F#code
+- First match contract on Sepolia: https://sepolia.etherscan.io/address/0xD87D154C9ca8406e10922A742A30b6DccF989b35#code
+
 ## Supported networks
 
--   [Sepolia Testnet](https://chainlist.org/chain/11155111) ([docs](https://ethereum.org/nb/developers/docs/networks/#sepolia))
+- [Sepolia Testnet](https://chainlist.org/chain/11155111) ([docs](https://ethereum.org/nb/developers/docs/networks/#sepolia))
 
 ## Install
 
