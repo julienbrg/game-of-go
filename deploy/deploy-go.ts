@@ -51,17 +51,25 @@ export default async ({ getNamedAccounts, deployments }: any) => {
     console.log("White player:", whitePlayer)
     console.log("Black player:", blackPlayer)
 
-    // Verify contracts
+    // Network specific verification
     if (
         network.name === "sepolia" ||
         network.name === "optimism" ||
-        network.name === "op-sepolia"
+        network.name === "op-sepolia" ||
+        network.name === "mantle-sepolia"
     ) {
         try {
             console.log("\nEtherscan verification in progress...")
-            await wait(90 * 1000)
 
-            // Verify factory
+            // Different waiting times for different networks
+            const waitTime = network.name === "mantle-sepolia" ? 120 : 90 // Longer wait for Mantle
+            await wait(waitTime * 1000)
+
+            // Verify factory first
+            if (network.name === "mantle-sepolia") {
+                console.log("Verifying on Mantle Explorer...")
+            }
+
             await hre.run("verify:verify", {
                 address: factoryDeployment.address,
                 constructorArguments: []
@@ -73,9 +81,26 @@ export default async ({ getNamedAccounts, deployments }: any) => {
                 constructorArguments: [whitePlayer, blackPlayer]
             })
 
-            console.log("Etherscan verification done. ✅")
+            console.log("Contract verification done. ✅")
+
+            // Add Mantle-specific explorer links
+            if (network.name === "mantle-sepolia") {
+                console.log("\nView contracts on Mantle Explorer:")
+                console.log(
+                    `Factory: https://explorer.sepolia.mantle.xyz/address/${factoryDeployment.address}`
+                )
+                console.log(
+                    `First Game: https://explorer.sepolia.mantle.xyz/address/${gameZeroAddress}`
+                )
+            }
         } catch (error) {
             console.error("Verification error:", error)
+            if (network.name === "mantle-sepolia") {
+                console.log(
+                    "\nIf verification failed, you can try manually verifying at:"
+                )
+                console.log("https://explorer.sepolia.mantle.xyz/")
+            }
         }
     }
 }

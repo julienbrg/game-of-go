@@ -13,7 +13,10 @@ const {
     OPTIMISM_MAINNET_PRIVATE_KEY,
     OP_ETHERSCAN_API_KEY,
     OP_SEPOLIA_RPC_ENDPOINT_URL,
-    OP_SEPOLIA_PRIVATE_KEY
+    OP_SEPOLIA_PRIVATE_KEY,
+    MANTLE_SEPOLIA_RPC_ENDPOINT_URL,
+    MANTLE_SEPOLIA_PRIVATE_KEY,
+    MANTLE_ETHERSCAN_API_KEY
 } = process.env
 
 const config: HardhatUserConfig = {
@@ -33,6 +36,16 @@ const config: HardhatUserConfig = {
                 "https://ethereum-sepolia.publicnode.com",
             accounts:
                 SEPOLIA_PRIVATE_KEY !== undefined ? [SEPOLIA_PRIVATE_KEY] : []
+        },
+        "mantle-sepolia": {
+            chainId: 5003,
+            url:
+                MANTLE_SEPOLIA_RPC_ENDPOINT_URL ||
+                "https://rpc.sepolia.mantle.xyz",
+            accounts:
+                MANTLE_SEPOLIA_PRIVATE_KEY !== undefined
+                    ? [MANTLE_SEPOLIA_PRIVATE_KEY]
+                    : []
         },
         optimism: {
             chainId: 10,
@@ -75,7 +88,8 @@ const config: HardhatUserConfig = {
         apiKey: {
             sepolia: ETHERSCAN_API_KEY || "",
             optimisticEthereum: OP_ETHERSCAN_API_KEY || "",
-            "op-sepolia": OP_ETHERSCAN_API_KEY || ""
+            "op-sepolia": OP_ETHERSCAN_API_KEY || "",
+            "mantle-sepolia": MANTLE_ETHERSCAN_API_KEY || ""
         },
         customChains: [
             {
@@ -84,6 +98,14 @@ const config: HardhatUserConfig = {
                 urls: {
                     apiURL: "https://api-sepolia-optimistic.etherscan.io/api",
                     browserURL: "https://sepolia-optimism.etherscan.io"
+                }
+            },
+            {
+                network: "mantle-sepolia",
+                chainId: 5003,
+                urls: {
+                    apiURL: "https://explorer.sepolia.mantle.xyz/api",
+                    browserURL: "https://explorer.sepolia.mantle.xyz"
                 }
             }
         ]

@@ -8,6 +8,7 @@ Solidity implementation of the Game of Go.
 ## Supported networks
 
 - [Sepolia Testnet](https://chainlist.org/chain/11155111) ([docs](https://ethereum.org/nb/developers/docs/networks/#sepolia))
+- [Mantle Sepolia](https://docs.mantle.xyz/network/networks/testnet) ([docs](https://docs.mantle.xyz/network/networks/testnet))
 
 ## Install
 
