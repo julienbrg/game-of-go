@@ -9,6 +9,7 @@
         "deploy:sepolia": "hardhat deploy --network sepolia --reset",
         "deploy:optimism": "hardhat deploy --network optimism --reset",
         "deploy:op-sepolia": "hardhat deploy --network op-sepolia --reset",
+        "deploy:mantle-sepolia": "hardhat deploy --network mantle-sepolia --reset",
         "bal": "npx hardhat run scripts/check-my-balance.ts --network",
         "prettier": "prettier --write \"**/*.ts\"",
         "prettier-check": "prettier --check \"**/*.ts\""
