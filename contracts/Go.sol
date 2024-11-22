@@ -73,84 +73,6 @@ contract Go {
         emit Start("The game has started.");
     }
 
-    // Separate function for processing captures
-    function processCapture(uint[] memory group, State _opposingColor) private returns (uint) {
-        uint captureCount = 0;
-        for (uint j = 0; j < group.length && group[j] != 0; j++) {
-            if (intersections[group[j]].state == _opposingColor) {
-                intersections[group[j]].state = State.Empty;
-                captureCount++;
-            }
-        }
-        return captureCount;
-    }
-
-    // Modified capture processing
-    function processGroupCapture(uint[] memory group, State _opposingColor) private returns (uint) {
-        uint captureCount = 0;
-        bool[] memory processed = new bool[](GOBAN);
-
-        for (uint i = 0; i < group.length && group[i] != 0; i++) {
-            uint pos = group[i];
-            if (!processed[pos] && intersections[pos].state == _opposingColor) {
-                intersections[pos].state = State.Empty;
-                processed[pos] = true;
-                captureCount++;
-            }
-        }
-        return captureCount;
-    }
-
-    // Helper function to count group liberties
-    function countGroupLiberties(uint[] memory group) private view returns (uint) {
-        uint liberties = 0;
-        bool[] memory checkedPositions = new bool[](GOBAN);
-
-        for (uint i = 0; i < group.length && group[i] != 0; i++) {
-            (uint east, uint west, uint north, uint south) = getNeighbors(group[i]);
-
-            // Check each neighbor
-            if (east != 0 && !checkedPositions[east]) {
-                checkedPositions[east] = true;
-                if (intersections[east].state == State.Empty) liberties++;
-            }
-            if (west != 0 && !checkedPositions[west]) {
-                checkedPositions[west] = true;
-                if (intersections[west].state == State.Empty) liberties++;
-            }
-            if (north != 0 && !checkedPositions[north]) {
-                checkedPositions[north] = true;
-                if (intersections[north].state == State.Empty) liberties++;
-            }
-            if (south != 0 && !checkedPositions[south]) {
-                checkedPositions[south] = true;
-                if (intersections[south].state == State.Empty) liberties++;
-            }
-        }
-        return liberties;
-    }
-
-    function countLiberties(uint _position) public view returns (uint) {
-        uint liberties = 0;
-        (uint x, uint y) = positionToCoords(_position);
-
-        // Check each adjacent position
-        if (x + 1 < WIDTH && intersections[coordsToPosition(x + 1, y)].state == State.Empty) {
-            liberties++;
-        }
-        if (x > 0 && intersections[coordsToPosition(x - 1, y)].state == State.Empty) {
-            liberties++;
-        }
-        if (y + 1 < WIDTH && intersections[coordsToPosition(x, y + 1)].state == State.Empty) {
-            liberties++;
-        }
-        if (y > 0 && intersections[coordsToPosition(x, y - 1)].state == State.Empty) {
-            liberties++;
-        }
-
-        return liberties;
-    }
-
     /**
      * @notice Places a stone on the board
      * @dev Handles turn logic, stone placement, and capture checking
@@ -218,9 +140,106 @@ contract Go {
         }
     }
 
-    // Helper function to validate coordinates
-    function isValidPosition(uint x, uint y) private pure returns (bool) {
-        return x < WIDTH && y < WIDTH;
+    function countLiberties(uint _position) public view returns (uint) {
+        uint liberties = 0;
+        (uint x, uint y) = positionToCoords(_position);
+
+        // Check each adjacent position
+        if (x + 1 < WIDTH && intersections[coordsToPosition(x + 1, y)].state == State.Empty) {
+            liberties++;
+        }
+        if (x > 0 && intersections[coordsToPosition(x - 1, y)].state == State.Empty) {
+            liberties++;
+        }
+        if (y + 1 < WIDTH && intersections[coordsToPosition(x, y + 1)].state == State.Empty) {
+            liberties++;
+        }
+        if (y > 0 && intersections[coordsToPosition(x, y - 1)].state == State.Empty) {
+            liberties++;
+        }
+
+        return liberties;
+    }
+
+    function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
+        bool capturedAny = false;
+        bool[] memory processed = new bool[](GOBAN);
+        uint totalCaptured = 0;
+
+        (uint x, uint y) = getIntersection(_movePosition);
+
+        // Create array to store groups we need to check
+        uint[] memory groupsToCheck = new uint[](4);
+        uint numGroups = 0;
+
+        // Add adjacent opposing stones to groups to check
+        if (x > 0) {
+            uint pos = getIntersectionId(x - 1, y);
+            if (intersections[pos].state == _opposingColor && !processed[pos]) {
+                groupsToCheck[numGroups++] = pos;
+                processed[pos] = true;
+            }
+        }
+        if (x + 1 < WIDTH) {
+            uint pos = getIntersectionId(x + 1, y);
+            if (intersections[pos].state == _opposingColor && !processed[pos]) {
+                groupsToCheck[numGroups++] = pos;
+                processed[pos] = true;
+            }
+        }
+        if (y > 0) {
+            uint pos = getIntersectionId(x, y - 1);
+            if (intersections[pos].state == _opposingColor && !processed[pos]) {
+                groupsToCheck[numGroups++] = pos;
+                processed[pos] = true;
+            }
+        }
+        if (y + 1 < WIDTH) {
+            uint pos = getIntersectionId(x, y + 1);
+            if (intersections[pos].state == _opposingColor && !processed[pos]) {
+                groupsToCheck[numGroups++] = pos;
+                processed[pos] = true;
+            }
+        }
+
+        // Check each group for capture
+        for (uint i = 0; i < numGroups; i++) {
+            uint[] memory group = getGroup(groupsToCheck[i]);
+            bool hasLiberties = false;
+
+            // Check group for liberties
+            for (uint j = 0; j < group.length; j++) {
+                uint pos = group[j];
+                if (countLiberties(pos) > 0) {
+                    hasLiberties = true;
+                    break;
+                }
+            }
+
+            // If no liberties, capture the group
+            if (!hasLiberties) {
+                for (uint j = 0; j < group.length; j++) {
+                    uint pos = group[j];
+                    if (intersections[pos].state == _opposingColor) {
+                        intersections[pos].state = State.Empty;
+                        totalCaptured++;
+                    }
+                }
+                capturedAny = true;
+            }
+        }
+
+        // Update capture count
+        if (totalCaptured > 0) {
+            if (_opposingColor == State.White) {
+                capturedWhiteStones += totalCaptured;
+            } else {
+                capturedBlackStones += totalCaptured;
+            }
+            emit Capture(_opposingColor == State.White ? "White" : "Black", totalCaptured);
+        }
+
+        return capturedAny;
     }
 
     // Helper functions for position conversions
@@ -260,20 +279,6 @@ contract Go {
         }
     }
 
-    function hasConnection(uint pos1, uint pos2) private view returns (bool) {
-        if (pos1 >= GOBAN || pos2 >= GOBAN) return false;
-        if (intersections[pos1].state != intersections[pos2].state) return false;
-        if (intersections[pos1].state == State.Empty) return false;
-
-        // Get coordinates
-        (uint x1, uint y1) = positionToCoords(pos1);
-        (uint x2, uint y2) = positionToCoords(pos2);
-
-        // Check if adjacent
-        return ((x1 == x2 && (y1 + 1 == y2 || y1 == y2 + 1)) ||
-            (y1 == y2 && (x1 + 1 == x2 || x1 == x2 + 1)));
-    }
-
     function getGroup(uint _target) public view returns (uint[] memory) {
         uint[] memory group = new uint[](MAX_GROUP_SIZE);
         bool[] memory visited = new bool[](GOBAN);
@@ -281,7 +286,9 @@ contract Go {
 
         State targetState = intersections[_target].state;
         if (targetState == State.Empty) {
-            return group;
+            // Return empty array with correct size
+            uint[] memory emptyGroup = new uint[](0);
+            return emptyGroup;
         }
 
         // Create explicit stack for DFS
@@ -290,7 +297,6 @@ contract Go {
         stack[0] = _target;
 
         while (stackSize > 0) {
-            // Pop from stack
             stackSize--;
             uint currentPos = stack[stackSize];
 
@@ -298,160 +304,54 @@ contract Go {
                 visited[currentPos] = true;
                 group[groupSize++] = currentPos;
 
-                // Get the current stone's coordinates
-                (uint currentX, uint currentY) = getIntersection(currentPos);
+                (uint x, uint y) = getIntersection(currentPos);
 
-                // Explicitly check each direction and add connected stones of same color
-
-                // Check North
-                if (currentY < WIDTH - 1) {
-                    uint northPos = getIntersectionId(currentX, currentY + 1);
-                    if (!visited[northPos] && intersections[northPos].state == targetState) {
-                        stack[stackSize++] = northPos;
+                // Check all four adjacent positions
+                // Right
+                if (x + 1 < WIDTH) {
+                    uint rightPos = getIntersectionId(x + 1, y);
+                    if (!visited[rightPos] && intersections[rightPos].state == targetState) {
+                        stack[stackSize++] = rightPos;
                     }
                 }
-
-                // Check South
-                if (currentY > 0) {
-                    uint southPos = getIntersectionId(currentX, currentY - 1);
-                    if (!visited[southPos] && intersections[southPos].state == targetState) {
-                        stack[stackSize++] = southPos;
+                // Left
+                if (x > 0) {
+                    uint leftPos = getIntersectionId(x - 1, y);
+                    if (!visited[leftPos] && intersections[leftPos].state == targetState) {
+                        stack[stackSize++] = leftPos;
                     }
                 }
-
-                // Check East
-                if (currentX < WIDTH - 1) {
-                    uint eastPos = getIntersectionId(currentX + 1, currentY);
-                    if (!visited[eastPos] && intersections[eastPos].state == targetState) {
-                        stack[stackSize++] = eastPos;
+                // Up
+                if (y > 0) {
+                    uint upPos = getIntersectionId(x, y - 1);
+                    if (!visited[upPos] && intersections[upPos].state == targetState) {
+                        stack[stackSize++] = upPos;
                     }
                 }
-
-                // Check West
-                if (currentX > 0) {
-                    uint westPos = getIntersectionId(currentX - 1, currentY);
-                    if (!visited[westPos] && intersections[westPos].state == targetState) {
-                        stack[stackSize++] = westPos;
+                // Down
+                if (y + 1 < WIDTH) {
+                    uint downPos = getIntersectionId(x, y + 1);
+                    if (!visited[downPos] && intersections[downPos].state == targetState) {
+                        stack[stackSize++] = downPos;
                     }
                 }
             }
         }
 
-        return group;
+        // Create new array with exact size needed
+        uint[] memory result = new uint[](groupSize);
+        for (uint i = 0; i < groupSize; i++) {
+            result[i] = group[i];
+        }
+        return result;
     }
 
-    function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
-        bool capturedAny = false;
-        bool[] memory processed = new bool[](GOBAN);
-        uint totalCaptured = 0;
-
-        // Get position coordinates
-        (uint x, uint y) = getIntersection(_movePosition);
-
-        // Create array to store groups we need to check
-        uint[] memory groupsToCheck = new uint[](4);
-        uint numGroups = 0;
-
-        // Add adjacent opposing stones to groups to check
-        if (x > 0) {
-            uint pos = getIntersectionId(x - 1, y);
-            if (intersections[pos].state == _opposingColor && !processed[pos]) {
-                groupsToCheck[numGroups++] = pos;
-                processed[pos] = true;
-            }
-        }
-        if (x < WIDTH - 1) {
-            uint pos = getIntersectionId(x + 1, y);
-            if (intersections[pos].state == _opposingColor && !processed[pos]) {
-                groupsToCheck[numGroups++] = pos;
-                processed[pos] = true;
-            }
-        }
-        if (y > 0) {
-            uint pos = getIntersectionId(x, y - 1);
-            if (intersections[pos].state == _opposingColor && !processed[pos]) {
-                groupsToCheck[numGroups++] = pos;
-                processed[pos] = true;
-            }
-        }
-        if (y < WIDTH - 1) {
-            uint pos = getIntersectionId(x, y + 1);
-            if (intersections[pos].state == _opposingColor && !processed[pos]) {
-                groupsToCheck[numGroups++] = pos;
-                processed[pos] = true;
-            }
-        }
-
-        // Check each group for capture
-        for (uint i = 0; i < numGroups; i++) {
-            uint[] memory group = getGroup(groupsToCheck[i]);
-            bool hasLiberties = false;
-
-            // Check group for liberties
-            for (uint j = 0; j < group.length && group[j] != 0; j++) {
-                uint pos = group[j];
-                if (countLiberties(pos) > 0) {
-                    hasLiberties = true;
-                    break;
-                }
-            }
-
-            // If no liberties, capture the group
-            if (!hasLiberties) {
-                uint captureCount = 0;
-                for (uint j = 0; j < group.length && group[j] != 0; j++) {
-                    uint pos = group[j];
-                    if (intersections[pos].state == _opposingColor) {
-                        intersections[pos].state = State.Empty;
-                        captureCount++;
-                    }
-                }
-                if (captureCount > 0) {
-                    capturedAny = true;
-                    totalCaptured += captureCount;
-                }
-            }
-        }
-
-        // Update capture count
-        if (totalCaptured > 0) {
-            if (_opposingColor == State.White) {
-                capturedWhiteStones += totalCaptured;
-            } else {
-                capturedBlackStones += totalCaptured;
-            }
-            emit Capture(_opposingColor == State.White ? "White" : "Black", totalCaptured);
-        }
-
-        return capturedAny;
-    }
-
-    function hasGroupLiberties(uint[] memory group) private view returns (bool) {
-        bool[] memory checked = new bool[](GOBAN);
-
-        for (uint i = 0; i < group.length && group[i] != 0; i++) {
-            (uint east, uint west, uint north, uint south) = getNeighbors(group[i]);
-
-            if (east != 0 && !checked[east] && intersections[east].state == State.Empty)
-                return true;
-            if (west != 0 && !checked[west] && intersections[west].state == State.Empty)
-                return true;
-            if (north != 0 && !checked[north] && intersections[north].state == State.Empty)
-                return true;
-            if (south != 0 && !checked[south] && intersections[south].state == State.Empty)
-                return true;
-
-            checked[group[i]] = true;
-        }
-        return false;
-    }
-
-    // Helper function for getGroup
-    function contains(uint[] memory arr, uint val, uint size) private pure returns (bool) {
-        for (uint i = 0; i < size; i++) {
-            if (arr[i] == val) return true;
-        }
-        return false;
+    // Add a helper function to print group information (for debugging)
+    function getGroupInfo(
+        uint _target
+    ) public view returns (uint[] memory positions, uint size, State color) {
+        uint[] memory group = getGroup(_target);
+        return (group, group.length, intersections[_target].state);
     }
 
     /**
@@ -470,7 +370,7 @@ contract Go {
      * @return bool True if position is off board
      */
     function isOffBoard(uint _a, uint _b) public pure returns (bool) {
-        return _a >= WIDTH || _b >= WIDTH;
+        return _a >= WIDTH || _b >= WIDTH; // Checks if x or y is >= 19
     }
 
     /**
@@ -480,7 +380,9 @@ contract Go {
      * @return uint Position ID
      */
     function getIntersectionId(uint _a, uint _b) public pure returns (uint) {
-        return _a + _b * WIDTH;
+        // Change from: return _a + _b * WIDTH;
+        // This was causing the incorrect position calculation
+        return _b * WIDTH + _a;
     }
 
     /**
