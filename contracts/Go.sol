@@ -161,6 +161,59 @@ contract Go {
         return liberties;
     }
 
+    /**
+     * @notice Counts total liberties for a connected group of stones
+     * @param _position Position of any stone in the group
+     * @return Total number of unique liberties for the entire group
+     */
+    function countGroupLiberties(uint _position) public view returns (uint) {
+        require(_position < GOBAN, "Invalid position");
+
+        uint[] memory group = getGroup(_position);
+        bool[] memory checkedPoints = new bool[](GOBAN);
+        uint libertyCount = 0;
+
+        // For each stone in the group
+        for (uint i = 0; i < group.length && group[i] != 0; i++) {
+            (uint x, uint y) = positionToCoords(group[i]);
+
+            // Check each adjacent position
+            // East
+            if (x + 1 < WIDTH) {
+                uint pos = coordsToPosition(x + 1, y);
+                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
+                    libertyCount++;
+                    checkedPoints[pos] = true;
+                }
+            }
+            // West
+            if (x > 0) {
+                uint pos = coordsToPosition(x - 1, y);
+                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
+                    libertyCount++;
+                    checkedPoints[pos] = true;
+                }
+            }
+            // South
+            if (y + 1 < WIDTH) {
+                uint pos = coordsToPosition(x, y + 1);
+                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
+                    libertyCount++;
+                    checkedPoints[pos] = true;
+                }
+            }
+            // North
+            if (y > 0) {
+                uint pos = coordsToPosition(x, y - 1);
+                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
+                    libertyCount++;
+                    checkedPoints[pos] = true;
+                }
+            }
+        }
+        return libertyCount;
+    }
+
     function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
         bool capturedAny = false;
         bool[] memory processed = new bool[](GOBAN);
