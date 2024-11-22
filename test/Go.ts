@@ -102,6 +102,25 @@ describe("Go Game", function () {
                 .to.emit(go, "Move")
                 .withArgs("Black", 0, 0)
         })
+
+        it("Should correctly identify connected stones as a single group", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+            // Create a group of connected black stones
+            await go.connect(black).play(3, 3)
+            await go.connect(white).play(0, 0)
+            await go.connect(black).play(3, 4)
+            await go.connect(white).play(0, 1)
+            await go.connect(black).play(4, 3)
+
+            const group = await go.getGroup(coordsToPosition(3, 3))
+            expect(group.filter(pos => pos > 0n)).to.have.lengthOf(3)
+        })
+
+        it("Should respect the MAX_GROUP_SIZE constant", async function () {
+            const { go } = await loadFixture(deployGameFixture)
+            const maxSize = await go.MAX_GROUP_SIZE()
+            expect(maxSize).to.equal(100) // Verify constant
+        })
     })
 
     describe("Passing Mechanics", function () {
@@ -232,15 +251,14 @@ describe("Go Game", function () {
         it("should track captured stones correctly", async function () {
             const { go, white, black } = await loadFixture(deployGameFixture)
 
-            // SGF Move Sequence
-            await go.connect(black).play(3, 3) // B[dd]
-            await go.connect(white).play(3, 2) // W[dc]
-            await go.connect(black).play(15, 2) // B[pc]
-            await go.connect(white).play(4, 3) // W[ed]
-            await go.connect(black).play(15, 15) // B[pp]
-            await go.connect(white).play(3, 4) // W[de]
-            await go.connect(black).play(3, 15) // B[dp]
-            await go.connect(white).play(2, 3) // W[cd]
+            await go.connect(black).play(3, 3)
+            await go.connect(white).play(3, 2)
+            await go.connect(black).play(15, 2)
+            await go.connect(white).play(4, 3)
+            await go.connect(black).play(15, 15)
+            await go.connect(white).play(3, 4)
+            await go.connect(black).play(3, 15)
+            await go.connect(white).play(2, 3)
 
             const gameState = await go.getGameState()
 
@@ -279,6 +297,223 @@ describe("Go Game", function () {
             // Verify capture counts
             expect(state.whiteCaptured).to.equal(0)
             expect(state.blackCaptured).to.equal(0)
+        })
+        xit("Should maintain consistent board state after captures", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+
+            // Surround white stone from three sides first
+            await go.connect(black).play(0, 1) // Bottom
+            await go.connect(white).play(0, 0) // Target stone
+            await go.connect(black).play(1, 0) // Right
+            await go.connect(white).play(18, 18)
+            await go.connect(black).play(2, 0) // Extra stone to prevent escaping
+            await go.connect(white).play(18, 17)
+            await go.connect(black).play(0, 2) // Extra stone to prevent escaping
+            await go.connect(white).play(18, 16)
+
+            let state = await go.getGameState()
+            console.log("Board state before final move:")
+            console.log("Stone at (0,0):", Number(state.board[0].state))
+            console.log(
+                "Stone at (0,1):",
+                Number(state.board[coordsToPosition(0, 1)].state)
+            )
+            console.log(
+                "Stone at (1,0):",
+                Number(state.board[coordsToPosition(1, 0)].state)
+            )
+
+            // Final capturing move
+            await go.connect(black).play(0, 3) // Complete the surround
+
+            state = await go.getGameState()
+            console.log("\nBoard state after capture:")
+            console.log("Stone at (0,0):", Number(state.board[0].state))
+            console.log("White stones captured:", Number(state.whiteCaptured))
+
+            expect(Number(state.board[0].state)).to.equal(0)
+            expect(Number(state.whiteCaptured)).to.equal(1)
+        })
+
+        it("Should track pass states across multiple moves", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+            await go.connect(black).pass()
+            await go.connect(white).play(0, 0)
+            await go.connect(black).play(0, 1)
+            await go.connect(white).pass()
+
+            const state = await go.getGameState()
+            expect(state.isBlackPassed).to.be.false
+            expect(state.isWhitePassed).to.be.true
+        })
+    })
+    describe("Event Testing", function () {
+        it("Should emit Start event with correct parameters", async function () {
+            const Go = await ethers.getContractFactory("Go")
+            const [_, white, black] = await ethers.getSigners()
+
+            const go = await Go.deploy(white.address, black.address)
+            await go.waitForDeployment()
+
+            await expect(await go.deploymentTransaction())
+                .to.emit(go, "Start")
+                .withArgs("The game has started.")
+        })
+
+        it("Should emit Capture events with correct counts", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+
+            await go.connect(black).play(1, 0)
+            await go.connect(white).play(1, 1)
+            await go.connect(black).play(2, 1)
+            await go.connect(white).play(18, 18)
+            await go.connect(black).play(1, 2)
+            await go.connect(white).play(18, 17)
+
+            await expect(go.connect(black).play(0, 1))
+                .to.emit(go, "Capture")
+                .withArgs("White", 1)
+        })
+
+        it("Should emit End event with correct scores", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+            await go.connect(black).pass()
+
+            await expect(go.connect(white).pass())
+                .to.emit(go, "End")
+                .withArgs("Black wins", 1, 0)
+        })
+    })
+    describe("Edge Cases", function () {
+        xit("Should handle complex captures with multiple groups simultaneously", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+
+            // Create first white group
+            await go.connect(black).play(1, 1)
+            await go.connect(white).play(1, 2)
+            await go.connect(black).play(1, 3)
+            await go.connect(white).play(2, 2)
+            await go.connect(black).play(2, 1)
+            await go.connect(white).play(3, 2)
+            await go.connect(black).play(2, 3)
+
+            let state = await go.getGameState()
+            console.log("\nAfter first group:")
+            console.log("White stones captured:", Number(state.whiteCaptured))
+            console.log(
+                "Current board state at (2,2):",
+                Number(state.board[coordsToPosition(2, 2)].state)
+            )
+
+            // Create second white group
+            await go.connect(white).play(5, 2)
+            await go.connect(black).play(4, 2)
+            await go.connect(white).play(4, 3)
+            await go.connect(black).play(4, 1)
+            await go.connect(white).play(18, 18)
+            await go.connect(black).play(5, 3)
+            await go.connect(white).play(18, 17)
+            await go.connect(black).play(5, 1)
+            await go.connect(white).play(18, 16)
+
+            state = await go.getGameState()
+            console.log("\nBefore final move:")
+            console.log("White stones captured:", Number(state.whiteCaptured))
+            console.log(
+                "Board state at (4,3):",
+                Number(state.board[coordsToPosition(4, 3)].state)
+            )
+
+            // Complete surrounding both groups
+            await go.connect(black).play(3, 1)
+
+            state = await go.getGameState()
+            console.log("\nAfter final move:")
+            console.log("White stones captured:", Number(state.whiteCaptured))
+            console.log("Board states at key positions:")
+            console.log(
+                "(2,2):",
+                Number(state.board[coordsToPosition(2, 2)].state)
+            )
+            console.log(
+                "(3,2):",
+                Number(state.board[coordsToPosition(3, 2)].state)
+            )
+            console.log(
+                "(4,3):",
+                Number(state.board[coordsToPosition(4, 3)].state)
+            )
+
+            expect(Number(state.whiteCaptured)).to.equal(3)
+        })
+
+        it("Should correctly handle a complex game sequence", async function () {
+            const { go, black, white } = await loadFixture(deployGameFixture)
+
+            /* SGF Moves:
+            (;
+            FF[4]
+            CA[UTF-8]
+            GM[1]
+            SZ[19]
+            AP[maxiGos:8.03]
+            ;B[dc];W[pp];B[cp];W[pd];B[qf]
+            ;W[ce];B[qm];W[ep];B[dh];W[jq]
+            ;B[jc];W[cl];B[jp];W[jr];B[kq]
+            ;W[mc];B[iq];W[cg];B[ir];W[nq]
+            ;B[kr];W[js];B[is];W[ks];B[ls])
+            */
+
+            await go.connect(black).play(3, 2) // B[dc]
+            await go.connect(white).play(15, 15) // W[pp]
+            await go.connect(black).play(2, 15) // B[cp]
+            await go.connect(white).play(15, 3) // W[pd]
+            await go.connect(black).play(16, 5) // B[qf]
+
+            await go.connect(white).play(2, 4) // W[ce]
+            await go.connect(black).play(16, 12) // B[qm]
+            await go.connect(white).play(4, 15) // W[ep]
+            await go.connect(black).play(3, 7) // B[dh]
+            await go.connect(white).play(9, 16) // W[jq]
+
+            await go.connect(black).play(9, 2) // B[jc]
+            await go.connect(white).play(2, 11) // W[cl]
+            await go.connect(black).play(9, 15) // B[jp]
+            await go.connect(white).play(9, 17) // W[jr]
+            await go.connect(black).play(10, 16) // B[kq]
+
+            await go.connect(white).play(12, 2) // W[mc]
+            await go.connect(black).play(8, 16) // B[iq]
+            await go.connect(white).play(2, 6) // W[cg]
+            await go.connect(black).play(8, 17) // B[ir]
+            await go.connect(white).play(13, 16) // W[nq]
+
+            await go.connect(black).play(10, 17) // B[kr]
+            await go.connect(white).play(9, 18) // W[js]
+            await go.connect(black).play(8, 18) // B[is]
+            await go.connect(white).play(10, 18) // W[ks]
+            await go.connect(black).play(11, 18) // B[ls]
+
+            const state = await go.getGameState()
+
+            // Verify key stone placements
+            expect(Number(state.board[coordsToPosition(3, 2)].state)).to.equal(
+                1
+            ) // dc
+            expect(
+                Number(state.board[coordsToPosition(15, 15)].state)
+            ).to.equal(2) // pp
+            expect(
+                Number(state.board[coordsToPosition(11, 18)].state)
+            ).to.equal(1) // ls
+
+            // Verify capture counts
+            expect(Number(state.whiteCaptured)).to.equal(4)
+            expect(Number(state.blackCaptured)).to.equal(0)
+        })
+
+        xit("Should prevent ko moves immediately after capture", async function () {
+            // TODO: Implement ko rule test
         })
     })
 })
