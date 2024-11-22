@@ -14,8 +14,8 @@ export default async ({ getNamedAccounts, deployments }: any) => {
     console.log("Deploying contracts with account:", deployer)
 
     // Get two addresses for the first game
-    const whitePlayer = "0xe61A1a5278290B6520f0CEf3F2c71Ba70CF5cf4C"
-    const blackPlayer = "0xe61A1a5278290B6520f0CEf3F2c71Ba70CF5cf4C"
+    const whitePlayer = "0xe61A1a5278290B6520f0CEf3F2c71Ba70CF5cf4C" // Bob
+    const blackPlayer = "0xD8a394e7d7894bDF2C57139fF17e5CBAa29Dd977" // Alice
 
     // Deploy Go contract first
     const go = await deploy("Go", {
