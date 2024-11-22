@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
+/**
+ * @title Go
+ * @author Julien Béranger (https://github.com/julienbrg)
+ * @notice Implementation of the board game Go on Ethereum
+ * @dev Contract handles board setup, turn-based gameplay, captures, and scoring mechanics
+ */
 contract Go {
     error CallerNotAllowedToPlay();
     error NotYourTurn();
@@ -9,25 +15,37 @@ contract Go {
     error MissingTwoConsecutivePass();
     error NoLiberties();
 
+    /** @notice Size of the Go board (19x19) */
     uint public constant GOBAN = 19 * 19;
+    /** @notice Width/height of the Go board */
     uint public constant WIDTH = 19;
+    /** @notice Maximum size for a group of connected stones */
     uint public constant MAX_GROUP_SIZE = 100;
 
+    /** @notice Address of the white player */
     address public immutable white;
+    /** @notice Address of the black player */
     address public immutable black;
+    /** @notice Address of the player whose turn it currently is */
     address public turn;
 
+    /** @notice Number of white stones that have been captured */
     uint public capturedWhiteStones;
+    /** @notice Number of black stones that have been captured */
     uint public capturedBlackStones;
+    /** @notice Whether black passed on their previous turn */
     bool public blackPassedOnce;
+    /** @notice Whether white passed on their previous turn */
     bool public whitePassedOnce;
+    /** @notice Black player's current score */
     int public blackScore;
+    /** @notice White player's current score */
     int public whiteScore;
 
     /**
-     * @dev Represents a single point on the Go board
-     * @param x The x coordinate
-     * @param y The y coordinate
+     * @notice Represents a single point on the Go board
+     * @param x The x coordinate (0-18)
+     * @param y The y coordinate (0-18)
      * @param state The current state of this intersection (empty, black, or white)
      */
     struct Intersection {
@@ -36,10 +54,12 @@ contract Go {
         State state;
     }
 
+    /** @notice The complete game board state */
     Intersection[361] public intersections;
 
     /**
-     * @dev Represents possible states of an intersection
+     * @notice Possible states for each board intersection
+     * @dev Empty = 0, Black = 1, White = 2
      */
     enum State {
         Empty,
@@ -47,9 +67,13 @@ contract Go {
         White
     }
 
+    /** @notice Emitted when the game starts */
     event Start(string indexed statement);
+    /** @notice Emitted when a player makes a move */
     event Move(string indexed player, uint indexed x, uint indexed y);
+    /** @notice Emitted when the game ends */
     event End(string indexed statement, int indexed blackScore, int indexed whiteScore);
+    /** @notice Emitted when stones are captured */
     event Capture(string indexed player, uint indexed count);
 
     /**
@@ -61,7 +85,7 @@ contract Go {
     constructor(address _white, address _black) {
         white = _white;
         black = _black;
-        turn = black;
+        turn = black; // Black plays first in Go
 
         uint i;
         for (uint k; k < WIDTH; k++) {
@@ -74,10 +98,32 @@ contract Go {
     }
 
     /**
+     * @dev Converts x,y coordinates to a board position index
+     * @param x X coordinate
+     * @param y Y coordinate
+     * @return uint Position index
+     */
+    function coordsToPosition(uint x, uint y) private pure returns (uint) {
+        require(x < WIDTH && y < WIDTH, "Invalid coordinates");
+        return y * WIDTH + x;
+    }
+
+    /**
+     * @dev Converts board position index to x,y coordinates
+     * @param pos Position index
+     * @return x X coordinate
+     * @return y Y coordinate
+     */
+    function positionToCoords(uint pos) private pure returns (uint x, uint y) {
+        require(pos < GOBAN, "Invalid position");
+        return (pos % WIDTH, pos / WIDTH);
+    }
+
+    /**
      * @notice Places a stone on the board
-     * @dev Handles turn logic, stone placement, and capture checking
-     * @param _x X coordinate
-     * @param _y Y coordinate
+     * @dev Handles turn logic, stone placement, capture checking, and liberties validation
+     * @param _x X coordinate (0-18)
+     * @param _y Y coordinate (0-18)
      */
     function play(uint _x, uint _y) public {
         if (msg.sender != white && msg.sender != black) revert CallerNotAllowedToPlay();
@@ -128,11 +174,11 @@ contract Go {
         if (msg.sender == white) {
             whitePassedOnce = true;
             turn = black;
-            emit Move("White", 42, 42);
+            emit Move("White", 42, 42); // Special coordinates for pass
         } else {
             blackPassedOnce = true;
             turn = white;
-            emit Move("Black", 42, 42);
+            emit Move("Black", 42, 42); // Special coordinates for pass
         }
 
         if (blackPassedOnce && whitePassedOnce) {
@@ -140,6 +186,11 @@ contract Go {
         }
     }
 
+    /**
+     * @notice Counts the number of liberties for a single stone
+     * @param _position Board position to check
+     * @return uint Number of liberties the stone has
+     */
     function countLiberties(uint _position) public view returns (uint) {
         uint liberties = 0;
         (uint x, uint y) = positionToCoords(_position);
@@ -162,58 +213,11 @@ contract Go {
     }
 
     /**
-     * @notice Counts total liberties for a connected group of stones
-     * @param _position Position of any stone in the group
-     * @return Total number of unique liberties for the entire group
+     * @dev Checks and processes any captures resulting from the last move
+     * @param _movePosition Position of the last move
+     * @param _opposingColor Color of potential captured stones
+     * @return bool True if any captures occurred
      */
-    function countGroupLiberties(uint _position) public view returns (uint) {
-        require(_position < GOBAN, "Invalid position");
-
-        uint[] memory group = getGroup(_position);
-        bool[] memory checkedPoints = new bool[](GOBAN);
-        uint libertyCount = 0;
-
-        // For each stone in the group
-        for (uint i = 0; i < group.length && group[i] != 0; i++) {
-            (uint x, uint y) = positionToCoords(group[i]);
-
-            // Check each adjacent position
-            // East
-            if (x + 1 < WIDTH) {
-                uint pos = coordsToPosition(x + 1, y);
-                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
-                    libertyCount++;
-                    checkedPoints[pos] = true;
-                }
-            }
-            // West
-            if (x > 0) {
-                uint pos = coordsToPosition(x - 1, y);
-                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
-                    libertyCount++;
-                    checkedPoints[pos] = true;
-                }
-            }
-            // South
-            if (y + 1 < WIDTH) {
-                uint pos = coordsToPosition(x, y + 1);
-                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
-                    libertyCount++;
-                    checkedPoints[pos] = true;
-                }
-            }
-            // North
-            if (y > 0) {
-                uint pos = coordsToPosition(x, y - 1);
-                if (!checkedPoints[pos] && intersections[pos].state == State.Empty) {
-                    libertyCount++;
-                    checkedPoints[pos] = true;
-                }
-            }
-        }
-        return libertyCount;
-    }
-
     function checkForCaptures(uint _movePosition, State _opposingColor) internal returns (bool) {
         bool capturedAny = false;
         bool[] memory processed = new bool[](GOBAN);
@@ -225,7 +229,7 @@ contract Go {
         uint[] memory groupsToCheck = new uint[](4);
         uint numGroups = 0;
 
-        // Add adjacent opposing stones to groups to check
+        // Check each adjacent position for opposing stones
         if (x > 0) {
             uint pos = getIntersectionId(x - 1, y);
             if (intersections[pos].state == _opposingColor && !processed[pos]) {
@@ -233,7 +237,7 @@ contract Go {
                 processed[pos] = true;
             }
         }
-        if (x + 1 < WIDTH) {
+        if (x < WIDTH - 1) {
             uint pos = getIntersectionId(x + 1, y);
             if (intersections[pos].state == _opposingColor && !processed[pos]) {
                 groupsToCheck[numGroups++] = pos;
@@ -247,7 +251,7 @@ contract Go {
                 processed[pos] = true;
             }
         }
-        if (y + 1 < WIDTH) {
+        if (y < WIDTH - 1) {
             uint pos = getIntersectionId(x, y + 1);
             if (intersections[pos].state == _opposingColor && !processed[pos]) {
                 groupsToCheck[numGroups++] = pos;
@@ -260,10 +264,9 @@ contract Go {
             uint[] memory group = getGroup(groupsToCheck[i]);
             bool hasLiberties = false;
 
-            // Check group for liberties
-            for (uint j = 0; j < group.length; j++) {
-                uint pos = group[j];
-                if (countLiberties(pos) > 0) {
+            // Check if group has any liberties
+            for (uint j = 0; j < group.length && group[j] != 0; j++) {
+                if (countLiberties(group[j]) > 0) {
                     hasLiberties = true;
                     break;
                 }
@@ -271,18 +274,22 @@ contract Go {
 
             // If no liberties, capture the group
             if (!hasLiberties) {
-                for (uint j = 0; j < group.length; j++) {
+                uint captureCount = 0;
+                for (uint j = 0; j < group.length && group[j] != 0; j++) {
                     uint pos = group[j];
                     if (intersections[pos].state == _opposingColor) {
                         intersections[pos].state = State.Empty;
-                        totalCaptured++;
+                        captureCount++;
                     }
                 }
-                capturedAny = true;
+                if (captureCount > 0) {
+                    capturedAny = true;
+                    totalCaptured += captureCount;
+                }
             }
         }
 
-        // Update capture count
+        // Update capture counts
         if (totalCaptured > 0) {
             if (_opposingColor == State.White) {
                 capturedWhiteStones += totalCaptured;
@@ -295,43 +302,11 @@ contract Go {
         return capturedAny;
     }
 
-    // Helper functions for position conversions
-    function coordsToPosition(uint x, uint y) private pure returns (uint) {
-        require(x < WIDTH && y < WIDTH, "Invalid coordinates");
-        return y * WIDTH + x;
-    }
-
-    function positionToCoords(uint pos) private pure returns (uint x, uint y) {
-        require(pos < GOBAN, "Invalid position");
-        return (pos % WIDTH, pos / WIDTH);
-    }
-
-    function getNeighbors(
-        uint pos
-    ) public pure returns (uint east, uint west, uint north, uint south) {
-        (uint x, uint y) = positionToCoords(pos);
-
-        // Initialize all to 0
-        east = 0;
-        west = 0;
-        north = 0;
-        south = 0;
-
-        // Check each direction with boundary validation
-        if (x + 1 < WIDTH) {
-            east = y * WIDTH + (x + 1);
-        }
-        if (x > 0) {
-            west = y * WIDTH + (x - 1);
-        }
-        if (y + 1 < WIDTH) {
-            north = (y + 1) * WIDTH + x;
-        }
-        if (y > 0) {
-            south = (y - 1) * WIDTH + x;
-        }
-    }
-
+    /**
+     * @notice Gets all stones in a connected group
+     * @param _target Starting position to check for group
+     * @return Array of positions in the connected group
+     */
     function getGroup(uint _target) public view returns (uint[] memory) {
         uint[] memory group = new uint[](MAX_GROUP_SIZE);
         bool[] memory visited = new bool[](GOBAN);
@@ -339,9 +314,7 @@ contract Go {
 
         State targetState = intersections[_target].state;
         if (targetState == State.Empty) {
-            // Return empty array with correct size
-            uint[] memory emptyGroup = new uint[](0);
-            return emptyGroup;
+            return group;
         }
 
         // Create explicit stack for DFS
@@ -357,54 +330,37 @@ contract Go {
                 visited[currentPos] = true;
                 group[groupSize++] = currentPos;
 
-                (uint x, uint y) = getIntersection(currentPos);
+                (uint currentX, uint currentY) = getIntersection(currentPos);
 
-                // Check all four adjacent positions
-                // Right
-                if (x + 1 < WIDTH) {
-                    uint rightPos = getIntersectionId(x + 1, y);
-                    if (!visited[rightPos] && intersections[rightPos].state == targetState) {
-                        stack[stackSize++] = rightPos;
+                // Check each direction
+                if (currentY < WIDTH - 1) {
+                    uint northPos = getIntersectionId(currentX, currentY + 1);
+                    if (!visited[northPos] && intersections[northPos].state == targetState) {
+                        stack[stackSize++] = northPos;
                     }
                 }
-                // Left
-                if (x > 0) {
-                    uint leftPos = getIntersectionId(x - 1, y);
-                    if (!visited[leftPos] && intersections[leftPos].state == targetState) {
-                        stack[stackSize++] = leftPos;
+                if (currentY > 0) {
+                    uint southPos = getIntersectionId(currentX, currentY - 1);
+                    if (!visited[southPos] && intersections[southPos].state == targetState) {
+                        stack[stackSize++] = southPos;
                     }
                 }
-                // Up
-                if (y > 0) {
-                    uint upPos = getIntersectionId(x, y - 1);
-                    if (!visited[upPos] && intersections[upPos].state == targetState) {
-                        stack[stackSize++] = upPos;
+                if (currentX < WIDTH - 1) {
+                    uint eastPos = getIntersectionId(currentX + 1, currentY);
+                    if (!visited[eastPos] && intersections[eastPos].state == targetState) {
+                        stack[stackSize++] = eastPos;
                     }
                 }
-                // Down
-                if (y + 1 < WIDTH) {
-                    uint downPos = getIntersectionId(x, y + 1);
-                    if (!visited[downPos] && intersections[downPos].state == targetState) {
-                        stack[stackSize++] = downPos;
+                if (currentX > 0) {
+                    uint westPos = getIntersectionId(currentX - 1, currentY);
+                    if (!visited[westPos] && intersections[westPos].state == targetState) {
+                        stack[stackSize++] = westPos;
                     }
                 }
             }
         }
 
-        // Create new array with exact size needed
-        uint[] memory result = new uint[](groupSize);
-        for (uint i = 0; i < groupSize; i++) {
-            result[i] = group[i];
-        }
-        return result;
-    }
-
-    // Add a helper function to print group information (for debugging)
-    function getGroupInfo(
-        uint _target
-    ) public view returns (uint[] memory positions, uint size, State color) {
-        uint[] memory group = getGroup(_target);
-        return (group, group.length, intersections[_target].state);
+        return group;
     }
 
     /**
@@ -423,7 +379,7 @@ contract Go {
      * @return bool True if position is off board
      */
     function isOffBoard(uint _a, uint _b) public pure returns (bool) {
-        return _a >= WIDTH || _b >= WIDTH; // Checks if x or y is >= 19
+        return _a >= WIDTH || _b >= WIDTH;
     }
 
     /**
@@ -433,9 +389,7 @@ contract Go {
      * @return uint Position ID
      */
     function getIntersectionId(uint _a, uint _b) public pure returns (uint) {
-        // Change from: return _a + _b * WIDTH;
-        // This was causing the incorrect position calculation
-        return _b * WIDTH + _a;
+        return _a + _b * WIDTH;
     }
 
     /**
@@ -448,6 +402,15 @@ contract Go {
         return (_target % WIDTH, _target / WIDTH);
     }
 
+    /**
+     * @notice Gets the complete current state of the game
+     * @return board Current board state
+     * @return currentTurn Address of player whose turn it is
+     * @return whiteCaptured Number of captured white stones
+     * @return blackCaptured Number of captured black stones
+     * @return isWhitePassed Whether white passed last turn
+     * @return isBlackPassed Whether black passed last turn
+     */
     function getGameState()
         external
         view
