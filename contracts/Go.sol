@@ -367,7 +367,7 @@ contract Go {
      * @dev Ends the game and calculates final scores
      */
     function end() private {
-        blackScore = 1; // TO DO: implement proper scoring
+        blackScore = 1; // TODO: implement proper scoring
         whiteScore = 0;
         emit End(blackScore > whiteScore ? "Black wins" : "White wins", blackScore, whiteScore);
     }
