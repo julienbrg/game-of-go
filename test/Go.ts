@@ -413,66 +413,76 @@ describe("Go Game", function () {
         })
     })
     describe("Edge Cases", function () {
-        xit("Should handle complex captures with multiple groups simultaneously", async function () {
-            const { go, black, white } = await loadFixture(deployGameFixture)
+        it("Should handle complex captures with multiple groups simultaneously", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
 
-            // Create first white group
-            await go.connect(black).play(1, 1)
-            await go.connect(white).play(1, 2)
-            await go.connect(black).play(1, 3)
-            await go.connect(white).play(2, 2)
-            await go.connect(black).play(2, 1)
-            await go.connect(white).play(3, 2)
-            await go.connect(black).play(2, 3)
+            // Helper to get current board state
+            const getBoardState = async () => {
+                const state = await go.getGameState()
+                return state
+            }
 
-            let state = await go.getGameState()
-            console.log("\nAfter first group:")
-            console.log("White stones captured:", Number(state.whiteCaptured))
-            console.log(
-                "Current board state at (2,2):",
-                Number(state.board[coordsToPosition(2, 2)].state)
-            )
+            // Play sequence leading to the capture scenario
+            const moves = [
+                { color: black, pos: "dd" }, // B[dd]
+                { color: white, pos: "dc" }, // W[dc]
+                { color: black, pos: "fd" }, // B[fd]
+                { color: white, pos: "pc" }, // W[pc]
+                { color: black, pos: "qe" }, // B[qe]
+                { color: white, pos: "cd" }, // W[cd]
+                { color: black, pos: "gd" }, // B[gd]
+                { color: white, pos: "de" }, // W[de]
+                { color: black, pos: "pp" }, // B[pp]
+                { color: white, pos: "gc" }, // W[gc]
+                { color: black, pos: "qj" }, // B[qj]
+                { color: white, pos: "hd" }, // W[hd]
+                { color: black, pos: "jq" }, // B[jq]
+                { color: white, pos: "ge" }, // W[ge]
+                { color: black, pos: "dp" }, // B[dp]
+                { color: white, pos: "fe" }, // W[fe]
+                { color: black, pos: "cj" }, // B[cj]
+                { color: white, pos: "fc" }, // W[fc]
+                { color: black, pos: "qm" } // B[qm]
+            ]
 
-            // Create second white group
-            await go.connect(white).play(5, 2)
-            await go.connect(black).play(4, 2)
-            await go.connect(white).play(4, 3)
-            await go.connect(black).play(4, 1)
-            await go.connect(white).play(18, 18)
-            await go.connect(black).play(5, 3)
-            await go.connect(white).play(18, 17)
-            await go.connect(black).play(5, 1)
-            await go.connect(white).play(18, 16)
+            // Play all moves before the capturing move
+            for (const move of moves) {
+                const [x, y] = sgfToCoord(move.pos)
+                await go.connect(move.color).play(x, y)
+            }
 
-            state = await go.getGameState()
-            console.log("\nBefore final move:")
-            console.log("White stones captured:", Number(state.whiteCaptured))
-            console.log(
-                "Board state at (4,3):",
-                Number(state.board[coordsToPosition(4, 3)].state)
-            )
+            // Get the state before the capturing move
+            const stateBefore = await getBoardState()
 
-            // Complete surrounding both groups
-            await go.connect(black).play(3, 1)
+            // W[ed] - The capturing move
+            const [captureX, captureY] = sgfToCoord("ed")
+            await go.connect(white).play(captureX, captureY)
 
-            state = await go.getGameState()
-            console.log("\nAfter final move:")
-            console.log("White stones captured:", Number(state.whiteCaptured))
-            console.log("Board states at key positions:")
-            console.log(
-                "(2,2):",
-                Number(state.board[coordsToPosition(2, 2)].state)
-            )
-            console.log(
-                "(3,2):",
-                Number(state.board[coordsToPosition(3, 2)].state)
-            )
-            console.log(
-                "(4,3):",
-                Number(state.board[coordsToPosition(4, 3)].state)
-            )
+            // Get the state after the capturing move
+            const stateAfter = await getBoardState()
 
-            expect(Number(state.whiteCaptured)).to.equal(3)
+            // Verify that White captured exactly 3 stones
+            expect(
+                stateAfter.whiteCaptured - stateBefore.whiteCaptured
+            ).to.equal(0)
+            expect(
+                stateAfter.blackCaptured - stateBefore.blackCaptured
+            ).to.equal(3)
+
+            // Verify that the captured positions are now empty
+            // Check the captured positions using sgfToCoord
+            const capturedPositions = ["fd", "gd", "dd"].map(sgfToCoord)
+            for (const [x, y] of capturedPositions) {
+                expect(
+                    (await go.intersections(coordsToPosition(x, y))).state
+                ).to.equal(0) // Should be empty
+            }
+
+            // Verify the capturing stone is still in place
+            const [edX, edY] = sgfToCoord("ed")
+            expect(
+                (await go.intersections(coordsToPosition(edX, edY))).state
+            ).to.equal(2) // White (2)
         })
 
         it("Should correctly handle a complex game sequence", async function () {
