@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @title Go
  * @author Julien Béranger (https://github.com/julienbrg)
  * @notice Implementation of the board game Go on Ethereum
- * @dev Contract handles board setup, turn-based gameplay, captures, and scoring mechanics
+ * @dev Contract handles board setup, turn-based gameplay, captures, ko rule, and scoring mechanics
  */
 contract Go {
     error CallerNotAllowedToPlay();
@@ -14,6 +14,7 @@ contract Go {
     error OffBoard();
     error MissingTwoConsecutivePass();
     error NoLiberties();
+    error ViolatesKoRule();
 
     /** @notice Size of the Go board (19x19) */
     uint public constant GOBAN = 19 * 19;
@@ -41,6 +42,11 @@ contract Go {
     int public blackScore;
     /** @notice White player's current score */
     int public whiteScore;
+
+    /** @notice Position of the last single stone captured (for ko rule) */
+    uint public lastCapturedPosition;
+    /** @notice Block number when the last capture occurred (for ko rule) */
+    uint public lastCapturedTurn;
 
     /**
      * @notice Represents a single point on the Go board
@@ -86,6 +92,8 @@ contract Go {
         white = _white;
         black = _black;
         turn = black; // Black plays first in Go
+        lastCapturedPosition = type(uint).max; // Initialize to invalid position
+        lastCapturedTurn = 0;
 
         uint i;
         for (uint k; k < WIDTH; k++) {
@@ -121,7 +129,7 @@ contract Go {
 
     /**
      * @notice Places a stone on the board
-     * @dev Handles turn logic, stone placement, capture checking, and liberties validation
+     * @dev Handles turn logic, stone placement, capture checking, and ko rule
      * @param _x X coordinate (0-18)
      * @param _y Y coordinate (0-18)
      */
@@ -134,6 +142,12 @@ contract Go {
         if (turn != expectedTurn) revert NotYourTurn();
 
         uint move = getIntersectionId(_x, _y);
+
+        // Check ko rule before making any changes
+        if (move == lastCapturedPosition && lastCapturedTurn == block.number - 1) {
+            revert ViolatesKoRule();
+        }
+
         if (intersections[move].state != State.Empty) revert CannotPlayHere();
 
         intersections[move].state = playerColor;
@@ -171,6 +185,10 @@ contract Go {
         address expectedTurn = (playerColor == State.White) ? white : black;
         if (turn != expectedTurn) revert NotYourTurn();
 
+        // Reset ko rule state on pass
+        lastCapturedPosition = type(uint).max;
+        lastCapturedTurn = 0;
+
         if (msg.sender == white) {
             whitePassedOnce = true;
             turn = black;
@@ -196,18 +214,12 @@ contract Go {
         (uint x, uint y) = positionToCoords(_position);
 
         // Check each adjacent position
-        if (x + 1 < WIDTH && intersections[coordsToPosition(x + 1, y)].state == State.Empty) {
+        if (x + 1 < WIDTH && intersections[coordsToPosition(x + 1, y)].state == State.Empty)
             liberties++;
-        }
-        if (x > 0 && intersections[coordsToPosition(x - 1, y)].state == State.Empty) {
+        if (x > 0 && intersections[coordsToPosition(x - 1, y)].state == State.Empty) liberties++;
+        if (y + 1 < WIDTH && intersections[coordsToPosition(x, y + 1)].state == State.Empty)
             liberties++;
-        }
-        if (y + 1 < WIDTH && intersections[coordsToPosition(x, y + 1)].state == State.Empty) {
-            liberties++;
-        }
-        if (y > 0 && intersections[coordsToPosition(x, y - 1)].state == State.Empty) {
-            liberties++;
-        }
+        if (y > 0 && intersections[coordsToPosition(x, y - 1)].state == State.Empty) liberties++;
 
         return liberties;
     }
@@ -222,6 +234,7 @@ contract Go {
         bool capturedAny = false;
         bool[] memory processed = new bool[](GOBAN);
         uint totalCaptured = 0;
+        uint singleCapturePos = type(uint).max; // Track position of single captured stone
 
         (uint x, uint y) = getIntersection(_movePosition);
 
@@ -229,7 +242,7 @@ contract Go {
         uint[] memory groupsToCheck = new uint[](4);
         uint numGroups = 0;
 
-        // Check each adjacent position for opposing stones
+        // Add adjacent opposing stones to groups to check
         if (x > 0) {
             uint pos = getIntersectionId(x - 1, y);
             if (intersections[pos].state == _opposingColor && !processed[pos]) {
@@ -274,6 +287,11 @@ contract Go {
 
             // If no liberties, capture the group
             if (!hasLiberties) {
+                if (group[0] != 0 && group[1] == 0) {
+                    // Only one stone in group
+                    singleCapturePos = group[0]; // This is a single stone capture
+                }
+
                 uint captureCount = 0;
                 for (uint j = 0; j < group.length && group[j] != 0; j++) {
                     uint pos = group[j];
@@ -289,13 +307,23 @@ contract Go {
             }
         }
 
-        // Update capture counts
+        // Update capture counts and ko state
         if (totalCaptured > 0) {
             if (_opposingColor == State.White) {
                 capturedWhiteStones += totalCaptured;
             } else {
                 capturedBlackStones += totalCaptured;
             }
+
+            // Only update ko rule state if exactly one stone was captured
+            if (totalCaptured == 1 && singleCapturePos != type(uint).max) {
+                lastCapturedPosition = singleCapturePos; // Position of the captured stone
+                lastCapturedTurn = block.number;
+            } else {
+                lastCapturedPosition = type(uint).max;
+                lastCapturedTurn = 0;
+            }
+
             emit Capture(_opposingColor == State.White ? "White" : "Black", totalCaptured);
         }
 
@@ -345,6 +373,7 @@ contract Go {
                         stack[stackSize++] = southPos;
                     }
                 }
+
                 if (currentX < WIDTH - 1) {
                     uint eastPos = getIntersectionId(currentX + 1, currentY);
                     if (!visited[eastPos] && intersections[eastPos].state == targetState) {

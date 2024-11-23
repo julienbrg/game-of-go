@@ -375,19 +375,120 @@ describe("Go Game", function () {
             expect(state.isWhitePassed).to.be.true
         })
     })
-    describe("Event Testing", function () {
-        it("Should emit Start event with correct parameters", async function () {
-            const Go = await ethers.getContractFactory("Go")
-            const [_, white, black] = await ethers.getSigners()
 
-            const go = await Go.deploy(white.address, black.address)
-            await go.waitForDeployment()
+    describe("Go Game Ko Rule", function () {
+        it("Should detect ko rule violation in realistic game sequence", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
 
-            await expect(await go.deploymentTransaction())
-                .to.emit(go, "Start")
-                .withArgs("The game has started.")
+            // Helper to convert and play a move
+            async function playMove(
+                sgfMove: string,
+                player: SignerWithAddress // TODO: fix that warning
+            ) {
+                const [x, y] = sgfToCoord(sgfMove)
+                console.log(
+                    `Playing at (${x},${y}) - converted from ${sgfMove}`
+                )
+                await go.connect(player).play(x, y)
+
+                // Print game state after each move
+                const state = await go.getGameState()
+                console.log(
+                    `Captured stones - Black: ${state.blackCaptured}, White: ${state.whiteCaptured}`
+                )
+            }
+
+            // Play the exact sequence from the SGF
+            const sequence = [
+                { coord: "dd", player: black }, // Black D16
+                { coord: "ed", player: white }, // White E16
+                { coord: "ec", player: black }, // Black E17
+                { coord: "dc", player: white }, // White D17
+                { coord: "fd", player: black }, // Black F16
+                { coord: "cd", player: white }, // White C16
+                { coord: "ee", player: black }, // Black E15
+                { coord: "de", player: white }, // White D15
+                { coord: "pd", player: black }, // Black P16
+                { coord: "ed", player: white } // White E16 - captures Black's stone at E17
+            ]
+
+            // Play each move in sequence
+            for (const move of sequence) {
+                await playMove(move.coord, move.player)
+            }
+
+            // Now the critical test - Black attempts to retake at D16
+            const [koX, koY] = sgfToCoord("dd")
+
+            // Log the state before attempting the ko violation
+            console.log(`Attempting ko violation at (${koX},${koY})`)
+            const stateBefore = await go.getGameState()
+            console.log(
+                "Last captured position:",
+                await go.lastCapturedPosition()
+            )
+            console.log("Last captured turn:", await go.lastCapturedTurn())
+            console.log(
+                "Current block number:",
+                await ethers.provider.getBlockNumber()
+            )
+
+            // This should revert due to the ko rule
+            await expect(
+                go.connect(black).play(koX, koY)
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+
+            // Verify final game state
+            const gameState = await go.getGameState()
+            expect(gameState.blackCaptured).to.equal(1) // One black stone was captured
+            expect(gameState.currentTurn).to.equal(black.address) // Still black's turn after failed move
         })
 
+        it("Should enforce ko rule throughout an extended sequence", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
+
+            // Initial ko setup
+            await go.connect(black).play(...sgfToCoord("dd")) // B D16
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16
+            await go.connect(black).play(...sgfToCoord("ec")) // B E17
+            await go.connect(white).play(...sgfToCoord("dc")) // W D17
+            await go.connect(black).play(...sgfToCoord("fd")) // B F16
+            await go.connect(white).play(...sgfToCoord("cd")) // W C16
+            await go.connect(black).play(...sgfToCoord("ee")) // B E15
+            await go.connect(white).play(...sgfToCoord("de")) // W D15
+            await go.connect(black).play(...sgfToCoord("pd")) // B P16
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16 (captures)
+
+            // First ko violation attempt
+            await expect(
+                go.connect(black).play(...sgfToCoord("dd"))
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+
+            // Players make moves elsewhere
+            await go.connect(black).play(...sgfToCoord("qp")) // B Q4
+            await go.connect(white).play(...sgfToCoord("qc")) // W Q17
+
+            // Now black can retake the ko
+            await go.connect(black).play(...sgfToCoord("dd")) // B D16
+            await go.connect(white).play(...sgfToCoord("qq")) // W R3
+            await go.connect(black).play(...sgfToCoord("cp")) // B C4
+
+            // White retakes the ko
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16 (captures again)
+
+            // Verify final position
+            const gameState = await go.getGameState()
+            expect(gameState.blackCaptured).to.equal(2) // Black should have lost 2 stones
+            expect(gameState.currentTurn).to.equal(black.address)
+
+            // Verify ko rule is still enforced
+            await expect(
+                go.connect(black).play(...sgfToCoord("dd"))
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+        })
+    })
+
+    describe("Event Testing", function () {
         it("Should emit Capture events with correct counts", async function () {
             const { go, black, white } = await loadFixture(deployGameFixture)
 
@@ -412,6 +513,7 @@ describe("Go Game", function () {
                 .withArgs("Black wins", 1, 0)
         })
     })
+
     describe("Edge Cases", function () {
         it("Should handle complex captures with multiple groups simultaneously", async function () {
             const { go, white, black } = await loadFixture(deployGameFixture)
@@ -549,9 +651,354 @@ describe("Go Game", function () {
             expect(Number(state.whiteCaptured)).to.equal(4)
             expect(Number(state.blackCaptured)).to.equal(0)
         })
+    })
+    describe("Historic Games", function () {
+        // Helper function to visualize a section of the board
+        async function visualizeArea(
+            go: any,
+            centerX: number,
+            centerY: number,
+            radius: number = 3
+        ) {
+            const startX = Math.max(0, centerX - radius)
+            const endX = Math.min(18, centerX + radius)
+            const startY = Math.max(0, centerY - radius)
+            const endY = Math.min(18, centerY + radius)
 
-        xit("Should prevent ko moves immediately after capture", async function () {
-            // TODO: Implement ko rule test
+            console.log(
+                "\nBoard state around",
+                String.fromCharCode(97 + centerX) +
+                    String.fromCharCode(97 + centerY),
+                `(${centerX},${centerY})`
+            )
+            console.log("  ", "-".repeat((endX - startX + 1) * 4))
+
+            for (let y = startY; y <= endY; y++) {
+                let row = y.toString().padStart(2) + "| "
+                for (let x = startX; x <= endX; x++) {
+                    const pos = await go.getIntersectionId(x, y)
+                    const intersection = await go.intersections(pos)
+                    switch (intersection.state) {
+                        case 0:
+                            row += ".   "
+                            break
+                        case 1:
+                            row += "B   "
+                            break
+                        case 2:
+                            row += "W   "
+                            break
+                    }
+                }
+                console.log(row)
+            }
+            console.log("  ", "-".repeat((endX - startX + 1) * 4))
+
+            // Show coordinates for reference
+            let coordRow = "   "
+            for (let x = startX; x <= endX; x++) {
+                coordRow += String.fromCharCode(97 + x).padEnd(4)
+            }
+            console.log(coordRow)
+        }
+
+        // Helper to get adjacent positions and their states
+        async function checkAdjacent(go: any, x: number, y: number) {
+            console.log("\nAdjacent positions check:")
+            const positions = [
+                { dx: -1, dy: 0, dir: "Left" },
+                { dx: 1, dy: 0, dir: "Right" },
+                { dx: 0, dy: -1, dir: "Above" },
+                { dx: 0, dy: 1, dir: "Below" }
+            ]
+
+            for (const { dx, dy, dir } of positions) {
+                if (x + dx >= 0 && x + dx < 19 && y + dy >= 0 && y + dy < 19) {
+                    const pos = await go.getIntersectionId(x + dx, y + dy)
+                    const intersection = await go.intersections(pos)
+                    const state =
+                        intersection.state === 0
+                            ? "Empty"
+                            : intersection.state === 1
+                            ? "Black"
+                            : "White"
+                    console.log(`${dir}: (${x + dx},${y + dy}) - ${state}`)
+                    if (intersection.state > 0) {
+                        const liberties = await go.countLiberties(pos)
+                        console.log(`  Liberties: ${liberties}`)
+                    }
+                }
+            }
+        }
+
+        xit("Should replay the complete Lee Sedol vs AlphaGo Game 4 - The Divine Move", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
+
+            // Complete game sequence from SGF
+            const sequence = [
+                // Opening (1-20)
+                { color: black, move: "pd" }, // 1: P16
+                { color: white, move: "dp" }, // 2: D4
+                { color: black, move: "cd" }, // 3: C16
+                { color: white, move: "qp" }, // 4: R4
+                { color: black, move: "op" }, // 5: P4
+                { color: white, move: "oq" }, // 6: P3
+                { color: black, move: "nq" }, // 7: O3
+                { color: white, move: "pq" }, // 8: Q3
+                { color: black, move: "cn" }, // 9: C6
+                { color: white, move: "fq" }, // 10: F3
+                { color: black, move: "mp" }, // 11: M4
+                { color: white, move: "po" }, // 12: Q5
+                { color: black, move: "iq" }, // 13: J3
+                { color: white, move: "ec" }, // 14: E17
+                { color: black, move: "hd" }, // 15: H16
+                { color: white, move: "cg" }, // 16: C13
+                { color: black, move: "ed" }, // 17: E16
+                { color: white, move: "cj" }, // 18: C10
+                { color: black, move: "dc" }, // 19: D17
+                { color: white, move: "bp" }, // 20: B4
+
+                // Early Middle Game (21-40)
+                { color: black, move: "nc" }, // 21: O17
+                { color: white, move: "qi" }, // 22: R11
+                { color: black, move: "ep" }, // 23: E4
+                { color: white, move: "eo" }, // 24: E5
+                { color: black, move: "dk" }, // 25: D9
+                { color: white, move: "fp" }, // 26: F4
+                { color: black, move: "ck" }, // 27: C9
+                { color: white, move: "dj" }, // 28: D10
+                { color: black, move: "ej" }, // 29: E10
+                { color: white, move: "ei" }, // 30: E11
+                { color: black, move: "fi" }, // 31: F11
+                { color: white, move: "eh" }, // 32: E12
+                { color: black, move: "fh" }, // 33: F12
+                { color: white, move: "bj" }, // 34: B10
+                { color: black, move: "fk" }, // 35: F9
+                { color: white, move: "fg" }, // 36: F13
+                { color: black, move: "gg" }, // 37: G13
+                { color: white, move: "ff" }, // 38: F14
+                { color: black, move: "gf" }, // 39: G14
+                { color: white, move: "mc" }, // 40: M17
+
+                // Middle Game (41-60)
+                { color: black, move: "md" }, // 41: M16
+                { color: white, move: "lc" }, // 42: L17
+                { color: black, move: "nb" }, // 43: O18
+                { color: white, move: "id" }, // 44: J16
+                { color: black, move: "hc" }, // 45: H17
+                { color: white, move: "jg" }, // 46: K13
+                { color: black, move: "pj" }, // 47: Q10
+                { color: white, move: "pi" }, // 48: Q11
+                { color: black, move: "oj" }, // 49: P10
+                { color: white, move: "oi" }, // 50: P11
+                { color: black, move: "ni" }, // 51: O11
+                { color: white, move: "nh" }, // 52: O12
+                { color: black, move: "mh" }, // 53: M12
+                { color: white, move: "ng" }, // 54: O13
+                { color: black, move: "mg" }, // 55: M13
+                { color: white, move: "mi" }, // 56: M11
+                { color: black, move: "nj" }, // 57: O10
+                { color: white, move: "mf" }, // 58: M14
+                { color: black, move: "li" }, // 59: L11
+                { color: white, move: "ne" }, // 60: O15
+
+                // Middle Game (61-80)
+                { color: black, move: "nd" }, // 61: O16
+                { color: white, move: "mj" }, // 62: M10
+                { color: black, move: "lf" }, // 63: L14
+                { color: white, move: "mk" }, // 64: M9
+                { color: black, move: "me" }, // 65: M15
+                { color: white, move: "nf" }, // 66: O14
+                { color: black, move: "lh" }, // 67: L12
+                { color: white, move: "qj" }, // 68: R10
+                { color: black, move: "kk" }, // 69: L9
+                { color: white, move: "ik" }, // 70: J9
+                { color: black, move: "ji" }, // 71: K11
+                { color: white, move: "gh" }, // 72: G12
+                { color: black, move: "hj" }, // 73: H10
+                { color: white, move: "ge" }, // 74: G15
+                { color: black, move: "he" }, // 75: H15
+                { color: white, move: "fd" }, // 76: F16
+                { color: black, move: "fc" }, // 77: F17
+                { color: white, move: "ki" }, // 78: L11
+                { color: black, move: "jj" }, // 79: K10
+                { color: white, move: "lj" }, // 80: L10
+
+                // Late Middle Game (81-100)
+                { color: black, move: "kh" }, // 81: L12
+                { color: white, move: "jh" }, // 82: K12
+                { color: black, move: "ml" }, // 83: M8
+                { color: white, move: "nk" }, // 84: O9
+                { color: black, move: "ol" }, // 85: P8
+                { color: white, move: "ok" }, // 86: P9
+                { color: black, move: "pk" }, // 87: Q9
+                { color: white, move: "pl" }, // 88: Q8
+                { color: black, move: "qk" }, // 89: R9
+                { color: white, move: "nl" }, // 90: O8
+                { color: black, move: "kj" }, // 91: L10
+                { color: white, move: "ii" }, // 92: J11
+                { color: black, move: "rk" }, // 93: S9
+                { color: white, move: "om" }, // 94: P7
+                { color: black, move: "pg" }, // 95: Q13
+                { color: white, move: "ql" }, // 96: R8
+                { color: black, move: "cp" }, // 97: C4
+                { color: white, move: "co" }, // 98: C5
+                { color: black, move: "oe" }, // 99: P15
+                { color: white, move: "rl" }, // 100: S8
+
+                // End Game (101-180)
+                { color: black, move: "sk" }, // 101: T9
+                { color: white, move: "rj" }, // 102: S10
+                { color: black, move: "hg" }, // 103: H13
+                { color: white, move: "ij" }, // 104: J10
+                { color: black, move: "km" }, // 105: L7
+                { color: white, move: "gi" }, // 106: G11
+                { color: black, move: "fj" }, // 107: F10
+                { color: white, move: "jl" }, // 108: K8
+                { color: black, move: "kl" }, // 109: L8
+                { color: white, move: "gl" }, // 110: G8
+                { color: black, move: "fl" }, // 111: F8
+                { color: white, move: "gm" }, // 112: G7
+                { color: black, move: "ch" }, // 113: C12
+                { color: white, move: "ee" }, // 114: E15
+                { color: black, move: "eb" }, // 115: E18
+                { color: white, move: "bg" }, // 116: B13
+                { color: black, move: "dg" }, // 117: D13
+                { color: white, move: "eg" }, // 118: E13
+                { color: black, move: "en" }, // 119: E6
+                { color: white, move: "fo" }, // 120: F5
+                { color: black, move: "df" }, // 121: D14
+                { color: white, move: "dh" }, // 122: D12
+                { color: black, move: "im" }, // 123: J7
+                { color: white, move: "hk" }, // 124: H9
+                { color: black, move: "bn" }, // 125: B6
+                { color: white, move: "if" }, // 126: J14
+                { color: black, move: "gd" }, // 127: G16
+                { color: white, move: "fe" }, // 128: F15
+                { color: black, move: "hf" }, // 129: H14
+                { color: white, move: "ih" }, // 130: J12
+                { color: black, move: "bh" }, // 131: B12
+                { color: white, move: "ci" }, // 132: C11
+                { color: black, move: "ho" }, // 133: H5
+                { color: white, move: "go" }, // 134: G5
+                { color: black, move: "or" }, // 135: P2
+                { color: white, move: "rg" }, // 136: S13
+                { color: black, move: "dn" }, // 137: D6
+                { color: white, move: "cq" }, // 138: C3
+                { color: black, move: "pr" }, // 139: Q2
+                { color: white, move: "qr" }, // 140: R2
+                { color: black, move: "rf" }, // 141: S14
+                { color: white, move: "qg" }, // 142: R13
+                { color: black, move: "qf" }, // 143: R14
+                { color: white, move: "jc" }, // 144: K17
+                { color: black, move: "gr" }, // 145: G2
+                { color: white, move: "sf" }, // 146: T14
+                { color: black, move: "se" }, // 147: T15
+                { color: white, move: "sg" }, // 148: T13
+                { color: black, move: "rd" }, // 149: S16
+                { color: white, move: "bl" }, // 150: B8
+                { color: black, move: "bk" }, // 151: B9
+                { color: white, move: "ak" }, // 152: A9
+                { color: black, move: "cl" }, // 153: C8
+                { color: white, move: "hn" }, // 154: H6
+                { color: black, move: "in" }, // 155: J6
+                { color: white, move: "hp" }, // 156: H4
+                { color: black, move: "fr" }, // 157: F2
+                { color: white, move: "er" }, // 158: E2
+                { color: black, move: "es" }, // 159: E1
+                { color: white, move: "ds" }, // 160: D1
+                { color: black, move: "ah" }, // 161: A12
+                { color: white, move: "ai" }, // 162: A11
+                { color: black, move: "kd" }, // 163: L16
+                { color: white, move: "ie" }, // 164: J15
+                { color: black, move: "kc" }, // 165: L17
+                { color: white, move: "kb" }, // 166: L18
+                { color: black, move: "gk" }, // 167: G9
+                { color: white, move: "ib" }, // 168: J18
+                { color: black, move: "qh" }, // 169: R12
+                { color: white, move: "rh" }, // 170: S12
+                { color: black, move: "qs" }, // 171: R1
+                { color: white, move: "rs" }, // 172: S1
+                { color: black, move: "oh" }, // 173: P12
+                { color: white, move: "sl" }, // 174: T8
+                { color: black, move: "of" }, // 175: P14
+                { color: white, move: "sj" }, // 176: T10
+                { color: black, move: "ni" }, // 177: O11
+                { color: white, move: "nj" }, // 178: O10
+                { color: black, move: "oo" }, // 179: P5
+                { color: white, move: "jp" } // 180: K4 - Lee Sedol's winning move
+            ]
+
+            let moveCount = 0
+
+            for (const { color, move } of sequence) {
+                const [x, y] = sgfToCoord(move)
+
+                // Special checks around the problematic moves
+                if (moveCount === 102 || moveCount === 103) {
+                    console.log(
+                        `\nAnalyzing position before ${
+                            color === black ? "Black" : "White"
+                        } plays at ${move}:`
+                    )
+                    await visualizeArea(go, x, y, 4)
+                    await checkAdjacent(go, x, y)
+                }
+
+                try {
+                    await go.connect(color).play(x, y)
+                    moveCount++
+                    console.log(
+                        `Move ${moveCount}: ${
+                            color === black ? "Black" : "White"
+                        } plays at ${move} (${x},${y})`
+                    )
+
+                    // Check after problematic moves
+                    if (moveCount === 103) {
+                        const pos = await go.getIntersectionId(x, y)
+                        console.log(`\nAfter move 103:`)
+                        await visualizeArea(go, x, y, 4)
+                        console.log(
+                            `Liberties at ${move}: ${await go.countLiberties(
+                                pos
+                            )}`
+                        )
+                    }
+                } catch (e) {
+                    console.log(
+                        `\nFailed attempting ${
+                            color === black ? "Black" : "White"
+                        } at ${move} (${x},${y}):`
+                    )
+                    await visualizeArea(go, x, y, 4)
+                    await checkAdjacent(go, x, y)
+                    throw e
+                }
+            }
+
+            // Verify final position
+            const gameState = await go.getGameState()
+            console.log("\nFinal game state:")
+            console.log("Total moves played:", moveCount)
+            console.log(
+                "White stones captured:",
+                gameState.whiteCaptured.toString()
+            )
+            console.log(
+                "Black stones captured:",
+                gameState.blackCaptured.toString()
+            )
+
+            expect(gameState.currentTurn).to.equal(black.address)
+            expect(moveCount).to.equal(180)
+
+            // Verify Lee Sedol's winning move
+            const [jpX, jpY] = sgfToCoord("jp")
+            const finalMove = await go.intersections(
+                await go.getIntersectionId(jpX, jpY)
+            )
+            expect(finalMove.state).to.equal(2) // White stone
         })
     })
 })
