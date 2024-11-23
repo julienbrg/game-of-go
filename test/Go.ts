@@ -8,6 +8,13 @@ function coordsToPosition(x: number, y: number): number {
     return y * 19 + x
 }
 
+// Convert SGF coordinates to board positions (SGF uses letters a-s, we need 0-18)
+const sgfToCoord = (sgfCoord: string): [number, number] => {
+    const x = sgfCoord.charCodeAt(0) - 97 // 'a' starts at 97 in ASCII
+    const y = sgfCoord.charCodeAt(1) - 97
+    return [x, y]
+}
+
 describe("Go Game", function () {
     // Common fixture for all tests
     async function deployGameFixture() {
@@ -298,41 +305,62 @@ describe("Go Game", function () {
             expect(state.whiteCaptured).to.equal(0)
             expect(state.blackCaptured).to.equal(0)
         })
-        xit("Should maintain consistent board state after captures", async function () {
+        it("Should correctly execute a specific game sequence", async function () {
             const { go, black, white } = await loadFixture(deployGameFixture)
 
-            // Surround white stone from three sides first
-            await go.connect(black).play(0, 1) // Bottom
-            await go.connect(white).play(0, 0) // Target stone
-            await go.connect(black).play(1, 0) // Right
-            await go.connect(white).play(18, 18)
-            await go.connect(black).play(2, 0) // Extra stone to prevent escaping
-            await go.connect(white).play(18, 17)
-            await go.connect(black).play(0, 2) // Extra stone to prevent escaping
-            await go.connect(white).play(18, 16)
+            // The sequence from the SGF: B[dd];W[cd];B[pp];W[dc];B[qd];W[ed];B[dq];W[de]
+            const moves = [
+                { player: black, coord: "dd" }, // Black D4
+                { player: white, coord: "cd" }, // White C4
+                { player: black, coord: "pp" }, // Black Q16
+                { player: white, coord: "dc" }, // White D3
+                { player: black, coord: "qd" }, // Black Q4
+                { player: white, coord: "ed" }, // White E4
+                { player: black, coord: "dq" }, // Black D17
+                { player: white, coord: "de" } // White D15 (captures Black D4)
+            ]
 
-            let state = await go.getGameState()
-            console.log("Board state before final move:")
-            console.log("Stone at (0,0):", Number(state.board[0].state))
-            console.log(
-                "Stone at (0,1):",
-                Number(state.board[coordsToPosition(0, 1)].state)
-            )
-            console.log(
-                "Stone at (1,0):",
-                Number(state.board[coordsToPosition(1, 0)].state)
-            )
+            // Execute each move
+            for (const move of moves) {
+                const [x, y] = sgfToCoord(move.coord)
+                await go.connect(move.player).play(x, y)
 
-            // Final capturing move
-            await go.connect(black).play(0, 3) // Complete the surround
+                // Verify the stone was placed correctly
+                const pos = await go.getIntersectionId(x, y)
+                const intersection = await go.intersections(pos)
 
-            state = await go.getGameState()
-            console.log("\nBoard state after capture:")
-            console.log("Stone at (0,0):", Number(state.board[0].state))
-            console.log("White stones captured:", Number(state.whiteCaptured))
+                // Verify the stone color (1 for Black, 2 for White)
+                const expectedState = move.player === black ? 1 : 2
+                expect(intersection.state).to.equal(expectedState)
+            }
 
-            expect(Number(state.board[0].state)).to.equal(0)
-            expect(Number(state.whiteCaptured)).to.equal(1)
+            // Verify final board state matches expected positions
+            const verifyPosition = async (
+                coord: string,
+                expectedState: number
+            ) => {
+                const [x, y] = sgfToCoord(coord)
+                const pos = await go.getIntersectionId(x, y)
+                const intersection = await go.intersections(pos)
+                expect(intersection.state).to.equal(expectedState)
+            }
+
+            // The Black stone at D4 should now be captured (empty)
+            await verifyPosition("dd", 0) // D4 should be empty after capture
+            await verifyPosition("cd", 2) // White stone at C4
+            await verifyPosition("pp", 1) // Black stone at Q16
+            await verifyPosition("dc", 2) // White stone at D3
+            await verifyPosition("qd", 1) // Black stone at Q4
+            await verifyPosition("ed", 2) // White stone at E4
+            await verifyPosition("dq", 1) // Black stone at D17
+            await verifyPosition("de", 2) // White stone at D15
+
+            // Verify one Black stone was captured
+            expect(await go.capturedBlackStones()).to.equal(1)
+            expect(await go.capturedWhiteStones()).to.equal(0)
+
+            // Verify turn is correct after sequence (should be Black's turn)
+            expect(await go.turn()).to.equal(black.address)
         })
 
         it("Should track pass states across multiple moves", async function () {
