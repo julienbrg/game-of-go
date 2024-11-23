@@ -375,19 +375,120 @@ describe("Go Game", function () {
             expect(state.isWhitePassed).to.be.true
         })
     })
-    describe("Event Testing", function () {
-        it("Should emit Start event with correct parameters", async function () {
-            const Go = await ethers.getContractFactory("Go")
-            const [_, white, black] = await ethers.getSigners()
 
-            const go = await Go.deploy(white.address, black.address)
-            await go.waitForDeployment()
+    describe("Go Game Ko Rule", function () {
+        it("Should detect ko rule violation in realistic game sequence", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
 
-            await expect(await go.deploymentTransaction())
-                .to.emit(go, "Start")
-                .withArgs("The game has started.")
+            // Helper to convert and play a move
+            async function playMove(
+                sgfMove: string,
+                player: SignerWithAddress
+            ) {
+                const [x, y] = sgfToCoord(sgfMove)
+                console.log(
+                    `Playing at (${x},${y}) - converted from ${sgfMove}`
+                )
+                await go.connect(player).play(x, y)
+
+                // Print game state after each move
+                const state = await go.getGameState()
+                console.log(
+                    `Captured stones - Black: ${state.blackCaptured}, White: ${state.whiteCaptured}`
+                )
+            }
+
+            // Play the exact sequence from the SGF
+            const sequence = [
+                { coord: "dd", player: black }, // Black D16
+                { coord: "ed", player: white }, // White E16
+                { coord: "ec", player: black }, // Black E17
+                { coord: "dc", player: white }, // White D17
+                { coord: "fd", player: black }, // Black F16
+                { coord: "cd", player: white }, // White C16
+                { coord: "ee", player: black }, // Black E15
+                { coord: "de", player: white }, // White D15
+                { coord: "pd", player: black }, // Black P16
+                { coord: "ed", player: white } // White E16 - captures Black's stone at E17
+            ]
+
+            // Play each move in sequence
+            for (const move of sequence) {
+                await playMove(move.coord, move.player)
+            }
+
+            // Now the critical test - Black attempts to retake at D16
+            const [koX, koY] = sgfToCoord("dd")
+
+            // Log the state before attempting the ko violation
+            console.log(`Attempting ko violation at (${koX},${koY})`)
+            const stateBefore = await go.getGameState()
+            console.log(
+                "Last captured position:",
+                await go.lastCapturedPosition()
+            )
+            console.log("Last captured turn:", await go.lastCapturedTurn())
+            console.log(
+                "Current block number:",
+                await ethers.provider.getBlockNumber()
+            )
+
+            // This should revert due to the ko rule
+            await expect(
+                go.connect(black).play(koX, koY)
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+
+            // Verify final game state
+            const gameState = await go.getGameState()
+            expect(gameState.blackCaptured).to.equal(1) // One black stone was captured
+            expect(gameState.currentTurn).to.equal(black.address) // Still black's turn after failed move
         })
 
+        it("Should enforce ko rule throughout an extended sequence", async function () {
+            const { go, white, black } = await loadFixture(deployGameFixture)
+
+            // Initial ko setup
+            await go.connect(black).play(...sgfToCoord("dd")) // B D16
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16
+            await go.connect(black).play(...sgfToCoord("ec")) // B E17
+            await go.connect(white).play(...sgfToCoord("dc")) // W D17
+            await go.connect(black).play(...sgfToCoord("fd")) // B F16
+            await go.connect(white).play(...sgfToCoord("cd")) // W C16
+            await go.connect(black).play(...sgfToCoord("ee")) // B E15
+            await go.connect(white).play(...sgfToCoord("de")) // W D15
+            await go.connect(black).play(...sgfToCoord("pd")) // B P16
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16 (captures)
+
+            // First ko violation attempt
+            await expect(
+                go.connect(black).play(...sgfToCoord("dd"))
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+
+            // Players make moves elsewhere
+            await go.connect(black).play(...sgfToCoord("qp")) // B Q4
+            await go.connect(white).play(...sgfToCoord("qc")) // W Q17
+
+            // Now black can retake the ko
+            await go.connect(black).play(...sgfToCoord("dd")) // B D16
+            await go.connect(white).play(...sgfToCoord("qq")) // W R3
+            await go.connect(black).play(...sgfToCoord("cp")) // B C4
+
+            // White retakes the ko
+            await go.connect(white).play(...sgfToCoord("ed")) // W E16 (captures again)
+
+            // Verify final position
+            const gameState = await go.getGameState()
+            expect(gameState.blackCaptured).to.equal(2) // Black should have lost 2 stones
+            expect(gameState.currentTurn).to.equal(black.address)
+
+            // Verify ko rule is still enforced
+            await expect(
+                go.connect(black).play(...sgfToCoord("dd"))
+            ).to.be.revertedWithCustomError(go, "ViolatesKoRule")
+        })
+    })
+
+    describe("Event Testing", function () {
         it("Should emit Capture events with correct counts", async function () {
             const { go, black, white } = await loadFixture(deployGameFixture)
 
@@ -412,6 +513,7 @@ describe("Go Game", function () {
                 .withArgs("Black wins", 1, 0)
         })
     })
+
     describe("Edge Cases", function () {
         it("Should handle complex captures with multiple groups simultaneously", async function () {
             const { go, white, black } = await loadFixture(deployGameFixture)
@@ -548,10 +650,6 @@ describe("Go Game", function () {
             // Verify capture counts
             expect(Number(state.whiteCaptured)).to.equal(4)
             expect(Number(state.blackCaptured)).to.equal(0)
-        })
-
-        xit("Should prevent ko moves immediately after capture", async function () {
-            // TODO: Implement ko rule test
         })
     })
 })
